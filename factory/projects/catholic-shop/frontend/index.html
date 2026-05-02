@@ -537,11 +537,11 @@
         destinationImage(d) {
           const city = String(d?.city || '').trim().toLowerCase();
           const images = {
-            'jerusalem': 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/be/Church_of_the_Holy_Sepulchre_by_Gerd_Eichmann_%28cropped%29.jpg/640px-Church_of_the_Holy_Sepulchre_by_Gerd_Eichmann_%28cropped%29.jpg',
-            'assisi': 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/86/Assisi_San_Francesco_BW_2.JPG/640px-Assisi_San_Francesco_BW_2.JPG',
+            'jerusalem': '/static/images/destinations/jerusalem.jpg',
+            'assisi': '/static/images/destinations/assisi.jpg',
             'kraków': '/static/images/destinations/krakow.jpg',
             'lourdes': '/static/images/destinations/lourdes.jpg',
-            'fátima': 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/2f/Santu%C3%A1rio_de_F%C3%A1tima_%2839%29.jpg/640px-Santu%C3%A1rio_de_F%C3%A1tima_%2839%29.jpg',
+            'fátima': '/static/images/destinations/fatima.jpg',
             'guadalupe': '/static/images/destinations/guadalupe.jpg',
           };
           return images[city] || '';
