@@ -128,6 +128,168 @@ def run(base_url: str) -> Dict[str, Any]:
     except AssertionError as exc:
         add_check("ai_recommend_gate", False, str(exc), elapsed * 1000)
 
+    # ─── Ranking eval: golden test cases ──────────────────
+    RANKING_TESTS = [
+        {
+            "label": "confirmation_italy",
+            "intent": "confirmation gift from Italy",
+            "occasion": "confirmation",
+            "budget_usd": 60,
+            "limit": 3,
+            "must_include_any": [],
+            "expect_top_any": [],
+        },
+        {
+            "label": "healing_after_surgery",
+            "intent": "something for healing after surgery",
+            "occasion": "healing",
+            "budget_usd": 50,
+            "limit": 3,
+            "must_include_any": ["prod_monastery_candle", "prod_monastery_soap"],
+            "expect_top_any": [],
+        },
+        {
+            "label": "wedding_under_40",
+            "intent": "wedding gift under $40",
+            "occasion": "wedding",
+            "budget_usd": 40,
+            "limit": 3,
+            "must_include_any": [],
+            "budget_check": True,
+        },
+        {
+            "label": "first_communion_rosary",
+            "intent": "rosary for first communion",
+            "occasion": "first_communion",
+            "budget_usd": 60,
+            "limit": 3,
+            "must_include_any": ["prod_cw_full_grace", "prod_catholically_murrina", "prod_cw_mother_pure"],
+            "expect_top_any": [],
+        },
+        {
+            "label": "guadalupe_gift",
+            "intent": "something from Guadalupe for my goddaughter",
+            "occasion": "baptism",
+            "budget_usd": 30,
+            "limit": 3,
+            "must_include_any": [],
+            "expect_top_any": [],
+        },
+        {
+            "label": "house_blessing",
+            "intent": "bless my new apartment",
+            "occasion": "house_blessing",
+            "budget_usd": 50,
+            "limit": 3,
+            "must_include_any": ["prod_monastery_soap", "prod_monastery_candle", "prod_monastery_candle"],
+            "expect_top_any": [],
+        },
+    ]
+
+    ranking_delta_ms = 0.0
+    ranking_passed = 0
+    ranking_total = 0
+    ranking_details: List[str] = []
+
+    for test in RANKING_TESTS:
+        ranking_total += 1
+        status, body, elapsed = _fetch(
+            f"{base_url}/api/v1/ai/recommend",
+            method="POST",
+            payload={
+                "intent": test["intent"],
+                "occasion": test["occasion"],
+                "budget_usd": test["budget_usd"],
+                "limit": test["limit"],
+            },
+        )
+        ranking_delta_ms += elapsed * 1000
+        try:
+            payload = json.loads(body or "{}")
+        except Exception:
+            payload = {}
+
+        recs = payload.get("recommendations") or []
+        rec_ids = [(r.get("product") or {}).get("product_id") for r in recs]
+
+        test_passed = True
+        failures: List[str] = []
+
+        if test.get("must_include_any"):
+            if not any(pid in rec_ids for pid in test["must_include_any"]):
+                test_passed = False
+                failures.append(f"none of {test['must_include_any']} in {rec_ids[:3]}")
+
+        if test.get("expect_top_any"):
+            if rec_ids and rec_ids[0] not in test["expect_top_any"]:
+                test_passed = False
+                failures.append(f"expected top in {test['expect_top_any']}, got {rec_ids[0]}")
+
+        if test.get("budget_check") and recs:
+            over_budget = [
+                (r.get("product") or {}).get("title")
+                for r in recs
+                if (r.get("product") or {}).get("price_cents", 0) / 100 > test["budget_usd"]
+            ]
+            if len(over_budget) == len(recs):
+                test_passed = False
+                failures.append(f"all {len(over_budget)} results over ${test['budget_usd']} budget")
+
+        if test_passed:
+            ranking_passed += 1
+
+        ranking_details.append(
+            "PASS" if test_passed else "FAIL",
+        )
+        if failures:
+            ranking_details[-1] += f": {', '.join(failures)}"
+
+    detail_lines = []
+    for i, detail in enumerate(ranking_details):
+        if "FAIL" in detail:
+            label = RANKING_TESTS[i].get("label", f"test_{i}")
+            detail_lines.append(f"{label}: {detail}")
+    detail = f"{ranking_passed}/{ranking_total} golden tests passed"
+    if detail_lines:
+        detail += " — " + "; ".join(detail_lines)
+
+    add_check(
+        "ranking_eval_gate",
+        ranking_passed == ranking_total,
+        detail,
+        ranking_delta_ms,
+    )
+
+    # chat SSE streaming gate
+    gate_elapsed_ms = 0.0
+    try:
+        chat_payload = {
+            "conversation_id": "eval-conv-001",
+            "message": "I need a confirmation gift from Italy",
+            "context": [],
+            "occasion": "confirmation",
+        }
+        status, body, elapsed = _fetch(
+            f"{base_url}/api/v1/chat/send",
+            method="POST",
+            payload=chat_payload,
+            timeout=60,
+        )
+        gate_elapsed_ms += elapsed * 1000
+        _assert(status == 200, f"chat SSE expected 200 got {status}")
+
+        # Parse SSE stream — should have text and product_cards or done events
+        has_text = "data:" in body
+        has_done = '"type":"done"' in body or '"type": "done"' in body
+        _assert(has_text, "chat SSE missing data events")
+        _assert(has_done, "chat SSE missing done event")
+
+        add_check("chat_sse_gate", True, f"SSE stream valid ({len(body)} bytes)", gate_elapsed_ms)
+    except AssertionError as exc:
+        add_check("chat_sse_gate", False, str(exc), gate_elapsed_ms)
+    except Exception as exc:
+        add_check("chat_sse_gate", False, str(exc), gate_elapsed_ms)
+
     # social generation gate
     status, body, elapsed = _fetch(
         f"{base_url}/api/v1/social/generate",

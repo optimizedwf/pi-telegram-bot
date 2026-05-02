@@ -127,6 +127,10 @@ const CHOW_BRAIN_DAILY_TICK_MS = Number(process.env.CHOW_BRAIN_DAILY_TICK_MS ?? 
 const CHOW_AUTH_ROTATION_ENABLED = String(process.env.CHOW_AUTH_ROTATION_ENABLED ?? "1").trim() !== "0";
 const CHOW_AUTH_ROTATION_MAX_ATTEMPTS = Math.max(0, Number(process.env.CHOW_AUTH_ROTATION_MAX_ATTEMPTS ?? 2));
 const CHOW_AUTH_ROTATION_SCRIPT = path.join(process.cwd(), "scripts", "chow_auth_rotation.py");
+const AUTO_COMPACT_ENABLED = String(process.env.AUTO_COMPACT_ENABLED ?? "1").trim() !== "0";
+const AUTO_COMPACT_CONTEXT_RATIO = Math.min(0.95, Math.max(0.05, Number(process.env.AUTO_COMPACT_CONTEXT_RATIO ?? 0.65)));
+const AUTO_COMPACT_MIN_TOKENS = Math.max(0, Number(process.env.AUTO_COMPACT_MIN_TOKENS ?? 24_000));
+const CONTEXT_CHARS_PER_TOKEN = Math.max(1, Number(process.env.CONTEXT_CHARS_PER_TOKEN ?? 4));
 const MATERIALS_REGISTRY_PATH = path.join(process.cwd(), "learning-center", "data", "agent-build-materials.json");
 const BOOKING_CONFIG_PATH = path.join(process.cwd(), "data", "booking-config.json");
 const CAL_DIY_PROVIDER_NAME = process.env.CAL_DIY_PROVIDER_NAME?.trim() || "cal.diy";
@@ -208,6 +212,87 @@ let hiveRuntime: HiveAgentRuntime | null = null;
 
 function sessionKey(channelId: ChannelId): string {
   return String(channelId);
+}
+
+type ContextEstimate = {
+  chars: number;
+  approxTokens: number;
+  contextWindow: number;
+  ratio: number;
+  pct: number;
+};
+
+function estimateContentChars(value: any, depth = 0): number {
+  if (value == null) return 0;
+  if (typeof value === "string") return value.length;
+  if (typeof value === "number" || typeof value === "boolean") return String(value).length;
+  if (depth > 8) {
+    try { return JSON.stringify(value)?.length ?? 0; } catch { return 0; }
+  }
+  if (Array.isArray(value)) return value.reduce((sum, item) => sum + estimateContentChars(item, depth + 1), 0);
+  if (typeof value === "object") {
+    let total = 0;
+    for (const key of ["text", "thinking", "content", "toolName", "errorMessage", "stopReason"]) {
+      if (key in value) total += estimateContentChars(value[key], depth + 1);
+    }
+    if (total > 0) return total;
+    return Object.values(value).reduce((sum, item) => sum + estimateContentChars(item, depth + 1), 0);
+  }
+  return 0;
+}
+
+function getModelContextWindowTokens(session: AgentSession): number {
+  const model = session.model as any;
+  const provider = String(model?.provider ?? "");
+  const id = String(model?.id ?? "");
+  const fromModel = Number(model?.contextWindow ?? model?.context_window ?? model?.contextLength ?? model?.maxInputTokens ?? 0);
+  if (Number.isFinite(fromModel) && fromModel > 0) return fromModel;
+  if (provider === "ollama" && id.includes("deepseek-v4")) return 1_048_576;
+  if (provider === "ollama" && (id.includes("qwen3.6") || id.includes("qwen3.5") || id.includes("kimi"))) return 262_144;
+  if (provider === "ollama" && id.includes("gpt-oss")) return 131_072;
+  return 128_000;
+}
+
+function estimateSessionContext(session: AgentSession, extraText = ""): ContextEstimate {
+  const messageChars = estimateContentChars((session as any).messages ?? []);
+  const chars = messageChars + extraText.length;
+  const approxTokens = Math.ceil(chars / CONTEXT_CHARS_PER_TOKEN);
+  const contextWindow = getModelContextWindowTokens(session);
+  const ratio = contextWindow > 0 ? approxTokens / contextWindow : 0;
+  return { chars, approxTokens, contextWindow, ratio, pct: Math.round(ratio * 1000) / 10 };
+}
+
+function formatContextEstimate(estimate: ContextEstimate): string {
+  return `${estimate.approxTokens.toLocaleString()}/${estimate.contextWindow.toLocaleString()} tok ≈ ${estimate.pct}%`;
+}
+
+async function maybeAutoCompactSession(
+  chatId: ChannelId,
+  state: ChatState,
+  upcomingPrompt = "",
+  notify?: (text: string) => Promise<void>
+): Promise<ContextEstimate> {
+  let estimate = estimateSessionContext(state.session, upcomingPrompt);
+  if (!AUTO_COMPACT_ENABLED) return estimate;
+  const shouldCompact =
+    estimate.approxTokens >= AUTO_COMPACT_MIN_TOKENS &&
+    estimate.ratio >= AUTO_COMPACT_CONTEXT_RATIO &&
+    ((state.session as any).messages?.length ?? 0) > 4;
+  if (!shouldCompact) return estimate;
+  const beforeMessages = ((state.session as any).messages?.length ?? 0);
+  console.warn(`[auto-compact] chat=${sessionKey(chatId)} context=${formatContextEstimate(estimate)} threshold=${Math.round(AUTO_COMPACT_CONTEXT_RATIO * 100)}% messages=${beforeMessages}`);
+  if (notify) await notify(`🗜️ Context is at ${formatContextEstimate(estimate)}. Auto-compacting before I answer...`).catch(() => {});
+  try {
+    await state.session.compact();
+    estimate = estimateSessionContext(state.session, upcomingPrompt);
+    const afterMessages = ((state.session as any).messages?.length ?? 0);
+    console.log(`[auto-compact] chat=${sessionKey(chatId)} done messages=${beforeMessages}->${afterMessages} context=${formatContextEstimate(estimate)}`);
+    if (notify) await notify(`✅ Compacted: ${beforeMessages}→${afterMessages} messages, now ${formatContextEstimate(estimate)}.`).catch(() => {});
+  } catch (err: any) {
+    console.error(`[auto-compact] chat=${sessionKey(chatId)} failed:`, err?.message ?? err);
+    if (notify) await notify(`⚠️ Auto-compaction failed: ${String(err?.message ?? err).slice(0, 220)}. I’ll try to continue.`).catch(() => {});
+  }
+  return estimateSessionContext(state.session, upcomingPrompt);
 }
 
 function getSessionDir(chatId: ChannelId): string {
@@ -1342,6 +1427,14 @@ async function runPiPrompt(
     "Answer only the latest message directly and concisely.",
   ].join("\n");
 
+  const systemPromptEstimate = buildSystemPrompt(chatId, BOT_NAME);
+  await maybeAutoCompactSession(
+    chatId,
+    state,
+    `${systemPromptEstimate}\n\n${promptWithContext}`,
+    (text) => ctx.reply(text).then(() => undefined)
+  );
+
   // Send a placeholder message we'll edit in real-time
   const placeholder = await ctx.reply("🤔 Thinking...");
   const msgId = placeholder.message_id;
@@ -1896,6 +1989,13 @@ async function runHiveTurn({ thread, message, history, runtime }: HiveRunTurnInp
       "Do not leave the response empty.",
       "Answer only the latest message directly and concisely.",
     ].join("\n");
+    await maybeAutoCompactSession(
+      channelId,
+      chatStates.get(sessionKey(channelId))!,
+      `${buildSystemPrompt(channelId, BOT_NAME)}\n\n${promptWithContext}`,
+      async (text) => runtime.toolStatus(text.slice(0, 120))
+    );
+    session = chatStates.get(sessionKey(channelId))!.session;
     await session.prompt(promptWithContext, { streamingBehavior: "steer" });
 
     let finalText = await captureFinalTextWithSettle(session);
@@ -2283,10 +2383,14 @@ bot.command("compact", async (ctx) => {
     await ctx.reply("⏳ Busy right now.");
     return;
   }
-  await ctx.reply("🗜️ Compacting...");
+  const beforeMessages = state.session.messages.length;
+  const beforeContext = estimateSessionContext(state.session, buildSystemPrompt(chatId, BOT_NAME));
+  await ctx.reply(`🗜️ Compacting... (${formatContextEstimate(beforeContext)})`);
   try {
     await state.session.compact();
-    await ctx.reply("✅ Compaction done!");
+    const afterMessages = state.session.messages.length;
+    const afterContext = estimateSessionContext(state.session, buildSystemPrompt(chatId, BOT_NAME));
+    await ctx.reply(`✅ Compaction done: ${beforeMessages}→${afterMessages} messages, ${formatContextEstimate(afterContext)}.`);
   } catch (e: any) {
     await ctx.reply(`❌ Compaction failed: ${e?.message}`);
   }
@@ -2315,12 +2419,18 @@ bot.command("status", async (ctx) => {
   const modelStr = model ? `${model.provider}/${model.id}` : "unknown";
   const thinkingLevel = (state.session as any).thinkingLevel ?? "?";
   const msgs = state.session.messages.length;
+  const contextEstimate = estimateSessionContext(state.session, buildSystemPrompt(chatId, BOT_NAME));
+  const autoCompactLine = AUTO_COMPACT_ENABLED
+    ? `${Math.round(AUTO_COMPACT_CONTEXT_RATIO * 100)}% / min ${AUTO_COMPACT_MIN_TOKENS.toLocaleString()} tok`
+    : "disabled";
   const sessionFile = state.session.sessionFile ?? "in-memory";
   await ctx.reply(
     `📊 *Session Status*\n` +
       `Model: \`${modelStr}\`\n` +
       `Thinking: \`${thinkingLevel}\`\n` +
       `Messages: ${msgs}\n` +
+      `Context est: \`${formatContextEstimate(contextEstimate)}\`\n` +
+      `Auto-compact: \`${autoCompactLine}\`\n` +
       `Busy: ${state.busy ? "Yes" : "No"}\n` +
       `Session: \`${path.basename(sessionFile)}\``,
     { parse_mode: "Markdown" }

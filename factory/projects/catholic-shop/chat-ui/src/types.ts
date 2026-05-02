@@ -14,6 +14,7 @@ export interface Product {
   category: string;
   inStock: boolean;
   leadTime?: string;
+  buyUrl?: string;
 }
 
 export interface CartItem {

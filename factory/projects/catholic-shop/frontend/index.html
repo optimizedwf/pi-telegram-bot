@@ -140,8 +140,10 @@
             class="flex-shrink-0 w-32 text-left group focus:outline-none relative"
             :class="activeDestination === d.destination_id ? 'ring-2 ring-gold ring-offset-2 ring-offset-parchment' : ''">
             <div class="relative h-36 bg-parchment-dark overflow-hidden shadow-sm group-hover:shadow-md transition-shadow duration-300">
-              <!-- Placeholder image area -->
-              <div class="absolute inset-0 bg-gradient-to-b from-parchment/40 to-ink/70 flex items-center justify-center">
+              <img :src="destinationImage(d)" :alt="d.city"
+                class="absolute inset-0 w-full h-full object-cover"
+                @error="$el.style.display='none'; $el.nextElementSibling.style.display='flex'" />
+              <div class="absolute inset-0 bg-gradient-to-b from-parchment/30 to-ink/70 flex items-center justify-center" style="display:none">
                 <span class="font-display text-2xl text-parchment-light/80 tracking-widest" x-text="destinationMark(d)"></span>
               </div>
               <!-- Vertical label -->
@@ -419,7 +421,8 @@
     </div>
 
     <!-- ═══ BOTTOM NAV ═══ -->
-    <nav class="bottom fixed bottom-0 left-0 right-0 z-30 max-w-lg mx-auto bg-parchment-light border-t border-parchment-dark px-2 py-2 grid grid-cols-5 gap-1">
+    <div class="bottom">
+    <nav class="fixed bottom-0 left-0 right-0 z-30 max-w-lg mx-auto bg-parchment-light border-t border-parchment-dark px-2 py-2 grid grid-cols-5 gap-1">
       <button @click="scrollToTop(); activeDestination=''; loadCatalog()" class="flex flex-col items-center py-1 text-ink-muted hover:text-ink transition-colors">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
         <span class="text-[9px] tracking-wider uppercase mt-1 font-display">Home</span>
@@ -444,6 +447,7 @@
         <span class="text-[9px] tracking-wider uppercase mt-1 font-display">Account</span>
       </button>
     </nav>
+    </div>
 
   </div>
 
@@ -528,6 +532,19 @@
           const city = String(d?.city || '').trim();
           const country = String(d?.country || '').trim();
           return (city.slice(0, 1) + country.slice(0, 1)).toUpperCase() || 'CM';
+        },
+
+        destinationImage(d) {
+          const city = String(d?.city || '').trim().toLowerCase();
+          const images = {
+            'jerusalem': 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/be/Church_of_the_Holy_Sepulchre_by_Gerd_Eichmann_%28cropped%29.jpg/640px-Church_of_the_Holy_Sepulchre_by_Gerd_Eichmann_%28cropped%29.jpg',
+            'assisi': 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/86/Assisi_San_Francesco_BW_2.JPG/640px-Assisi_San_Francesco_BW_2.JPG',
+            'kraków': '/static/images/destinations/krakow.jpg',
+            'lourdes': '/static/images/destinations/lourdes.jpg',
+            'fátima': 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/2f/Santu%C3%A1rio_de_F%C3%A1tima_%2839%29.jpg/640px-Santu%C3%A1rio_de_F%C3%A1tima_%2839%29.jpg',
+            'guadalupe': '/static/images/destinations/guadalupe.jpg',
+          };
+          return images[city] || '';
         },
 
         async loadCatalog() {

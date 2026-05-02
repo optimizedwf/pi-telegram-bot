@@ -61,6 +61,18 @@ export function ProductCard({ product }: Props) {
         >
           {inCart ? 'Remove' : 'Add to cart'}
         </button>
+
+        {product.buyUrl && (
+          <a
+            href={product.buyUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block w-full mt-1.5 py-1.5 rounded text-xs font-medium font-body text-center border border-ink-300 text-ink-700 hover:bg-ink-50 transition-colors duration-200"
+          >
+            Buy from {product.shopName}
+            <Icon name="arrowUpRight" size={10} className="inline ml-1" />
+          </a>
+        )}
       </div>
     </div>
   );

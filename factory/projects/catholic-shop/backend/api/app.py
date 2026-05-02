@@ -20,6 +20,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from backend.api.analytics_store import log_event, compute_summary
+from backend.api import db
 
 ROOT = Path(__file__).resolve().parents[2]
 FRONTEND_INDEX = ROOT / "frontend/index.html"
@@ -27,6 +28,10 @@ OPS_INDEX = ROOT / "frontend/ops.html"
 PRODUCT_PAGE = ROOT / "frontend/product.html"
 SACRAMENTS_PAGE = ROOT / "frontend/sacraments.html"
 SHOP_PAGE = ROOT / "frontend/shop.html"
+CHAT_UI_DIST = ROOT / "chat-ui/dist"
+CHAT_UI_INDEX = CHAT_UI_DIST / "index.html"
+
+# Legacy JSON paths (kept for reference, no longer primary store)
 SHOPS_JSON = ROOT / "data/processed/shops.json"
 PRODUCTS_JSON = ROOT / "data/processed/products.json"
 SHOP_LEADS_JSON = ROOT / "data/processed/shop_onboarding_leads.json"
@@ -49,7 +54,19 @@ ALLOWED_ORDER_STATUSES = {
     "cancelled",
 }
 
+from fastapi.staticfiles import StaticFiles
+
 app = FastAPI(title="Catholic Market API", version="0.1.0")
+
+# Mount frontend static assets (images, CSS, JS)
+_STATIC_DIR = ROOT / "frontend"
+if _STATIC_DIR.exists():
+    app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
+
+# Mount chat-ui React SPA at /chat
+if CHAT_UI_DIST.exists():
+    app.mount("/chat/assets", StaticFiles(directory=str(CHAT_UI_DIST / "assets")), name="chat-assets")
+    app.mount("/chat", StaticFiles(directory=str(CHAT_UI_DIST), html=True), name="chat-ui")
 
 
 # ═══ PI Concierge helpers ═══
@@ -81,6 +98,7 @@ def _compact_catalog(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             "inventory_status": row.get("inventory_status"),
             "lead_time_days": row.get("lead_time_days"),
             "image_url": row.get("image_url") or "",
+            "buy_url": row.get("buy_url") or "",
             "shop": row.get("shop") or {},
             "shop_id": row.get("shop_id"),
             "destination": _detect_destination(row),
@@ -108,7 +126,8 @@ def _call_pi_concierge(catalog: List[Dict[str, Any]], payload: AIRecommendPayloa
     )
 
     try:
-        with urllib.request.urlopen(rq, timeout=25) as resp:
+        # Keep storefront/eval responsive. If PI/cloud model is slow, fall back to deterministic ranking.
+        with urllib.request.urlopen(rq, timeout=8) as resp:
             if resp.status == 200:
                 return json.loads(resp.read().decode("utf-8"))
     except Exception:
@@ -266,161 +285,40 @@ def _json_write(path: Path, payload: Any) -> None:
 
 
 def _ensure_seed_data() -> None:
-    if not SHOPS_JSON.exists():
-        _json_write(
-            SHOPS_JSON,
-            [
-                {
-                    "shop_id": "shop_bottega_san_michele",
-                    "name": "Bottega San Michele",
-                    "country": "Italy",
-                    "city": "Assisi",
-                    "story": "Small family workshop carving olive wood devotional pieces near Assisi.",
-                    "shipping_regions": ["EU", "US"],
-                    "verified": True,
-                },
-                {
-                    "shop_id": "shop_atelier_divina",
-                    "name": "Atelier Divina Misericordia",
-                    "country": "Poland",
-                    "city": "Kraków",
-                    "story": "Catholic artisan studio focused on hand-finished iconography gifts and prayer tools.",
-                    "shipping_regions": ["EU", "US", "CA"],
-                    "verified": True,
-                },
-                {
-                    "shop_id": "shop_casa_guadalupe",
-                    "name": "Casa Guadalupe",
-                    "country": "Mexico",
-                    "city": "Guadalajara",
-                    "story": "Local Catholic gift shop with parish partnerships and handmade sacramental keepsakes.",
-                    "shipping_regions": ["MX", "US"],
-                    "verified": True,
-                },
-            ],
-        )
-
-    if not PRODUCTS_JSON.exists():
-        _json_write(
-            PRODUCTS_JSON,
-            [
-                {
-                    "product_id": "prod_tau_olive_assisi_001",
-                    "title": "Olive Wood Tau Cross",
-                    "shop_id": "shop_bottega_san_michele",
-                    "price_cents": 3200,
-                    "currency": "USD",
-                    "country": "Italy",
-                    "city": "Assisi",
-                    "materials": ["olive wood"],
-                    "tags": ["cross", "devotional", "franciscan"],
-                    "sacrament_tags": ["confirmation", "rcia"],
-                    "story": "Hand-carved olive wood Tau cross inspired by Franciscan tradition.",
-                    "inventory_status": "in_stock",
-                    "image_url": "https://images.unsplash.com/photo-1514448553575-75f7f8047f4f?auto=format&fit=crop&w=900&q=80",
-                },
-                {
-                    "product_id": "prod_rosary_jarrah_krk_002",
-                    "title": "Hand-knotted Mercy Rosary",
-                    "shop_id": "shop_atelier_divina",
-                    "price_cents": 4800,
-                    "currency": "USD",
-                    "country": "Poland",
-                    "city": "Kraków",
-                    "materials": ["wood", "cord", "alloy"],
-                    "tags": ["rosary", "prayer", "divine mercy"],
-                    "sacrament_tags": ["baptism", "first_communion"],
-                    "story": "Crafted by local artisans with meditative knot spacing for daily prayer.",
-                    "inventory_status": "in_stock",
-                    "image_url": "https://images.unsplash.com/photo-1464037866556-6812c9d1c72e?auto=format&fit=crop&w=900&q=80",
-                },
-                {
-                    "product_id": "prod_icon_madonna_krk_003",
-                    "title": "Our Lady Desk Icon",
-                    "shop_id": "shop_atelier_divina",
-                    "price_cents": 8900,
-                    "currency": "USD",
-                    "country": "Poland",
-                    "city": "Kraków",
-                    "materials": ["wood panel", "gold leaf"],
-                    "tags": ["icon", "mary", "home altar"],
-                    "sacrament_tags": ["wedding", "house_blessing"],
-                    "story": "Mini icon painted in traditional style for family prayer corners.",
-                    "inventory_status": "in_stock",
-                    "image_url": "https://images.unsplash.com/photo-1504805572947-34fad45aed93?auto=format&fit=crop&w=900&q=80",
-                },
-                {
-                    "product_id": "prod_scapular_woven_gdl_004",
-                    "title": "Woven Brown Scapular",
-                    "shop_id": "shop_casa_guadalupe",
-                    "price_cents": 1900,
-                    "currency": "USD",
-                    "country": "Mexico",
-                    "city": "Guadalajara",
-                    "materials": ["wool", "cotton thread"],
-                    "tags": ["scapular", "devotional", "marian"],
-                    "sacrament_tags": ["confirmation", "rcia"],
-                    "story": "Traditional woven scapular prepared by local parish-linked makers.",
-                    "inventory_status": "in_stock",
-                    "image_url": "https://images.unsplash.com/photo-1542042452-9c2858f6b8f8?auto=format&fit=crop&w=900&q=80",
-                },
-                {
-                    "product_id": "prod_saint_card_pack_gdl_005",
-                    "title": "Patron Saint Prayer Card Set",
-                    "shop_id": "shop_casa_guadalupe",
-                    "price_cents": 1400,
-                    "currency": "USD",
-                    "country": "Mexico",
-                    "city": "Guadalajara",
-                    "materials": ["printed cardstock"],
-                    "tags": ["prayer cards", "saints", "gifts"],
-                    "sacrament_tags": ["first_communion", "baptism"],
-                    "story": "Pocket-size prayer cards featuring classic saint devotions.",
-                    "inventory_status": "in_stock",
-                    "image_url": "https://images.unsplash.com/photo-1496345965479-90a5d3b31c63?auto=format&fit=crop&w=900&q=80",
-                },
-            ],
-        )
-
-    if not SHOP_LEADS_JSON.exists():
-        _json_write(SHOP_LEADS_JSON, {})
-    if not USERS_JSON.exists():
-        _json_write(USERS_JSON, {})
-    if not SAVED_ITEMS_JSON.exists():
-        _json_write(SAVED_ITEMS_JSON, {})
-    if not ORDERS_JSON.exists():
-        _json_write(ORDERS_JSON, {})
-    if not CARTS_JSON.exists():
-        _json_write(CARTS_JSON, {})
+    """Initialize SQLite DB. Seed data is handled by migration script."""
+    db.init_db()
 
 
 def _user_store() -> Dict[str, Dict[str, Any]]:
     _ensure_seed_data()
-    raw = _json_read(USERS_JSON, {})
-    if not isinstance(raw, dict):
-        return {}
-    return {str(k): dict(v) for k, v in raw.items() if isinstance(v, dict)}
+    return db.get_users()
 
 
 def _saved_store() -> Dict[str, List[str]]:
     _ensure_seed_data()
-    raw = _json_read(SAVED_ITEMS_JSON, {})
-    if not isinstance(raw, dict):
-        return {}
-    out: Dict[str, List[str]] = {}
-    for user_id, rows in raw.items():
-        if not isinstance(rows, list):
-            continue
-        out[str(user_id)] = [str(v).strip() for v in rows if str(v).strip()]
-    return out
+    return db.get_saved_items()
 
 
 def _persist_user_store(payload: Dict[str, Dict[str, Any]]) -> None:
-    _json_write(USERS_JSON, payload)
+    """Full user store replacement — used for new users."""
+    for uid, u in payload.items():
+        if not isinstance(u, dict):
+            continue
+        existing = db.get_user(uid)
+        if not existing:
+            db.insert_user(u)
 
 
 def _persist_saved_store(payload: Dict[str, List[str]]) -> None:
-    _json_write(SAVED_ITEMS_JSON, payload)
+    """Full saved store replacement — used for batch updates."""
+    existing = db.get_saved_items()
+    for uid, items in payload.items():
+        prev = set(existing.get(uid) or [])
+        curr = set(items or [])
+        for pid in curr - prev:
+            db.save_item(uid, pid)
+        for pid in prev - curr:
+            db.unsave_item(uid, pid)
 
 
 def _require_user(user_id: str) -> Dict[str, Any]:
@@ -447,26 +345,55 @@ def _saved_products_for_user(user_id: str) -> List[Dict[str, Any]]:
 
 def _orders_store() -> Dict[str, Dict[str, Any]]:
     _ensure_seed_data()
-    raw = _json_read(ORDERS_JSON, {})
-    if not isinstance(raw, dict):
-        return {}
-    return {str(k): dict(v) for k, v in raw.items() if isinstance(v, dict)}
+    return db.get_orders()
 
 
 def _persist_orders_store(payload: Dict[str, Dict[str, Any]]) -> None:
-    _json_write(ORDERS_JSON, payload)
+    """Full orders store replacement. For new orders only — partial updates use specific db functions."""
+    for oid, o in payload.items():
+        if not isinstance(o, dict):
+            continue
+        existing = db.get_order(oid)
+        if not existing:
+            db.insert_order(o)
+            for item in o.get("items") or []:
+                pid = str(item.get("product_id") or "").strip()
+                qty = int(item.get("quantity") or 0)
+                price = int(item.get("price_cents") or 0)
+                if pid and qty > 0:
+                    db.insert_order_item(oid, pid, qty, price)
+            # Legacy single-product orders
+            pid = str(o.get("product_id") or "").strip()
+            if pid and not o.get("items"):
+                qty = int(o.get("quantity") or 1)
+                db.insert_order_item(oid, pid, qty, 0)
 
 
 def _cart_store() -> Dict[str, Dict[str, Any]]:
     _ensure_seed_data()
-    raw = _json_read(CARTS_JSON, {})
-    if not isinstance(raw, dict):
-        return {}
-    return {str(k): dict(v) for k, v in raw.items() if isinstance(v, dict)}
+    return db.get_carts()
 
 
 def _persist_cart_store(payload: Dict[str, Dict[str, Any]]) -> None:
-    _json_write(CARTS_JSON, payload)
+    """Full cart store replacement. Handles new carts and updates."""
+    for cid, c in payload.items():
+        if not isinstance(c, dict):
+            continue
+        existing = db.get_cart(cid)
+        if not existing:
+            db.insert_cart(c)
+        else:
+            # Update timestamp for existing carts
+            from backend.api.db import _get_conn
+            conn = _get_conn()
+            conn.execute("UPDATE carts SET updated_at = ? WHERE cart_id = ?",
+                        (c.get("updated_at", _utc_now_iso()), cid))
+            conn.commit()
+        for item in c.get("items") or []:
+            pid = str(item.get("product_id") or "").strip()
+            qty = int(item.get("quantity") or 0)
+            if pid and qty > 0:
+                db.upsert_cart_item(cid, pid, qty)
 
 
 def _cart_hydrate(cart: Dict[str, Any]) -> Dict[str, Any]:
@@ -614,7 +541,7 @@ def _find_product(product_id: str) -> Dict[str, Any] | None:
     key = str(product_id or "").strip()
     if not key:
         return None
-    return next((p for p in _products_with_shop() if str(p.get("product_id") or "") == key), None)
+    return db.get_product(key)
 
 
 def _stripe_secret_key() -> str:
@@ -762,24 +689,17 @@ def _decrement_product_inventory(product_id: str, quantity: int) -> None:
 
 def _shops() -> List[Dict[str, Any]]:
     _ensure_seed_data()
-    rows = _json_read(SHOPS_JSON, [])
-    return [dict(row) for row in rows if isinstance(row, dict)]
+    return db.get_shops()
 
 
 def _products() -> List[Dict[str, Any]]:
     _ensure_seed_data()
-    rows = _json_read(PRODUCTS_JSON, [])
-    return [dict(row) for row in rows if isinstance(row, dict)]
+    return db.get_products()
 
 
 def _products_with_shop() -> List[Dict[str, Any]]:
-    shop_map = {str(s.get("shop_id") or ""): s for s in _shops()}
-    out: List[Dict[str, Any]] = []
-    for product in _products():
-        item = dict(product)
-        item["shop"] = shop_map.get(str(item.get("shop_id") or ""), {})
-        out.append(item)
-    return out
+    _ensure_seed_data()
+    return db.get_products_with_shop()
 
 
 _INTENT_STOPWORDS = {
@@ -1017,8 +937,9 @@ def _score_product(item: Dict[str, Any], payload: AIRecommendPayload, context: D
 
 
 def _destination_slugs_for_row(row: Dict[str, Any]) -> List[str]:
-    city = _slug(str(row.get("city") or ""))
-    country = _slug(str(row.get("country") or ""))
+    shop = row.get("shop") or {}
+    city = _slug(str(row.get("city") or shop.get("city") or ""))
+    country = _slug(str(row.get("country") or shop.get("country") or ""))
     slugs = []
     if city and city != "na":
         slugs.append(city)
@@ -1032,8 +953,9 @@ def _destination_slugs_for_row(row: Dict[str, Any]) -> List[str]:
 def _destination_rows() -> List[Dict[str, Any]]:
     by_id: Dict[str, Dict[str, Any]] = {}
     for row in _products_with_shop():
-        city = str(row.get("city") or "").strip()
-        country = str(row.get("country") or "").strip()
+        shop = row.get("shop") or {}
+        city = str(row.get("city") or shop.get("city") or "").strip()
+        country = str(row.get("country") or shop.get("country") or "").strip()
         city_slug = _slug(city)
         country_slug = _slug(country)
         if not city_slug or city_slug == "na":
@@ -1683,9 +1605,8 @@ def product_detail(product_id: str) -> Dict[str, Any]:
 @app.post("/api/v1/shops/onboarding")
 def shop_onboarding(payload: ShopOnboardingPayload) -> Dict[str, Any]:
     lead_id = f"lead_{_slug(payload.shop_name)}_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}"
-    leads = _json_read(SHOP_LEADS_JSON, {})
     now = _utc_now_iso()
-    leads[lead_id] = {
+    db.insert_shop_lead({
         "lead_id": lead_id,
         "shop_name": payload.shop_name,
         "contact_name": payload.contact_name,
@@ -1697,9 +1618,7 @@ def shop_onboarding(payload: ShopOnboardingPayload) -> Dict[str, Any]:
         "notes": payload.notes,
         "status": "new",
         "created_at": now,
-        "updated_at": now,
-    }
-    _json_write(SHOP_LEADS_JSON, leads)
+    })
     return {"accepted": True, "lead_id": lead_id}
 
 
@@ -1813,22 +1732,46 @@ def social_generate(payload: SocialGeneratePayload) -> Dict[str, Any]:
 # ═══ Chat & Auth helpers ═══
 
 def _ensure_chat_data() -> None:
-    if not CONVERSATIONS_JSON.exists():
-        _json_write(CONVERSATIONS_JSON, {})
-    if not CHAT_USERS_JSON.exists():
-        _json_write(CHAT_USERS_JSON, {})
+    _ensure_seed_data()
+
 
 def _conversations_store() -> Dict[str, Dict[str, Any]]:
-    return _json_read(CONVERSATIONS_JSON, {})
+    _ensure_seed_data()
+    return db.get_conversations()
+
 
 def _persist_conversations(payload: Dict[str, Dict[str, Any]]) -> None:
-    _json_write(CONVERSATIONS_JSON, payload)
+    """Full conversations store replacement."""
+    for cid, c in payload.items():
+        if not isinstance(c, dict):
+            continue
+        title = str(c.get("title") or c.get("id") or "")[:200]
+        occasion = str(c.get("occasion") or "")
+        db.upsert_conversation(cid, title, occasion)
+        # Only insert messages that don't already exist (checked by row count match)
+        existing = db.get_conversation(cid)
+        existing_count = len(existing["messages"]) if existing else 0
+        new_msgs = c.get("messages") or []
+        if len(new_msgs) > existing_count:
+            for msg in new_msgs[existing_count:]:
+                if not isinstance(msg, dict):
+                    continue
+                db.insert_message(cid, str(msg.get("role") or "user"), str(msg.get("content") or ""), str(msg.get("timestamp") or ""))
+
 
 def _chat_users_store() -> Dict[str, Dict[str, Any]]:
-    return _json_read(CHAT_USERS_JSON, {})
+    _ensure_seed_data()
+    return db.get_users()
+
 
 def _persist_chat_users(payload: Dict[str, Dict[str, Any]]) -> None:
-    _json_write(CHAT_USERS_JSON, payload)
+    """Full chat users store replacement."""
+    for uid, u in payload.items():
+        if not isinstance(u, dict):
+            continue
+        existing = db.get_user(uid)
+        if not existing:
+            db.insert_user(u)
 
 def _hash_password(password: str) -> str:
     salt = secrets.token_hex(16)

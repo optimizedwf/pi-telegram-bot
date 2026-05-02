@@ -1,14 +1,3 @@
-- [2026-04-09] We discussed why signals were not flowing on Trenchfeed and validated deployment split: Azure (`20.122.197.143`) is running only `rico-v3-shadow` (plus `pm2-logrotate`), while Trenchfeed UI/bridge/dashboard run on AWS.
-- Confirmed `jose` is not running on Azure; PM2 on Azure had only `rico-v3-shadow` online.
-- Root issue for stale Trenchfeed data was AWS ingest not running: `telegram.db`/bridge were stale until `rico-trenchfeed` was started under PM2.
-- Brought ingest back online by starting PM2 process `rico-trenchfeed` on AWS and saving PM2 state; verified active CA detections and spike events resumed in logs.
-- Tuned runtime config in `~/trenchfeed-trader/.env` for live flow: `TRENCHFEED_MIN_CHANNELS=6`, `TRENCHFEED_FASTLANE_MIN_CHANNELS=5`, `RICO_STRICT_NO_FALLBACK=0`, `TRENCHFEED_V2_PI_ONLY_MODE=0`.
-- Fixed stale `/api/signals` output by patching `src/trenchfeed/signals/aggregate-signals.ts` to merge fresh `signal_outbox` BUY/WATCH rows (with detail fallback), then restarted `trench-chart-bridge`.
-- Verified end-to-end recovery: `https://trenchfeed.fun/trench/chart-bridge/health` showed fresh processing (`telegram_lag_seconds` near 1, increasing `messages_processed`/`cas_detected`), and `/api/signals` returned current-time signals (~18:52 UTC) instead of March-only rows.
-- Current status: core lanes are online (`chow`, `partsbrain`, `rico-dashboard`, `trench-chart-ui`, `trench-chart-bridge`, `rico-trenchfeed`, Azure `rico-v3-shadow`); remaining follow-up is optional hardening for intermittent Jupiter 429 noise and earlier Telegram/Codex auth errors seen in Chow logs.
-
----
-
 [2026-04-16] Recovered phone-only Azure access in Termius for `rico-prod-vm` (`20.122.197.143`) by diagnosing failed SSH auth (wrong username) and adding the Termius-generated key’s public key to `~/.ssh/authorized_keys` for user `ubuntu` (fingerprint `SHA256:TTrwnFRlymxuuHbBGdOPDonBvGTMoS8rTotPvSdgeWs`); user confirmed login.
 - Confirmed AWS extraction is blocked right now: from Azure, SSH/22 to `3.142.111.235` and `18.117.162.164` remains unreachable/filtered, so full AWS data pull is pending account/access restoration.
 - Investigated requested YouTube “dark factory” learning flow: direct transcript/video scraping from cloud IP was bot-blocked (YouTube anti-bot/sign-in gating), but extracted video description and mapped core dark-factory loop (governance → triage → implement PRs → independent validation → cron/orchestration) and referenced Archon workflows.
@@ -50,3 +39,7 @@ Pipeline fix: three places stripped image_url — _compact_catalog (Python), com
 Added Zustand persist middleware to cart store (localStorage key: catholic-chat-cart), created gold cross favicon SVG, wired GET /api/v1/chat/conversations on frontend mount to load saved conversations with proper ISO timestamp mapping.
 
 Stripe checkout code is complete and ready but intentionally not wired — Adam doesn't want live payment until real products exist to ship. Current state: chat fully functional at http://40.75.10.4/catholic-shop/chat with 219KB JS + 17KB CSS, zero console errors, zero emojis in UI.
+
+---
+
+[2026-05-02] Fixed all 21 product images by re-scraping real Shopify product.json APIs for Brick House, Catholically, Monastery Greetings, Rugged Rosaries, and Catholic Company — replaced broken/guessed image URLs with actual CDN URLs. Verified all 21 prices against live shop data (all correct). Updated buy_urls to correct product handles where mismatched. Added destination images to the Pilgrimage browse chips — 6 holy site photos (Church of the Holy Sepulchre, St. Francis Basilica, Divine Mercy painting, Lourdes Sanctuary, Fátima Sanctuary, Guadalupe Basilica) from Wikimedia Commons and local cache. Mounted FastAPI StaticFiles at /static/ for serving local images through Caddy. Saved PM2 process list before impending VM restart for disk expansion. All 21 images, 21 buy URLs, and 21 prices now verified and working at http://40.75.10.4/catholic-shop/.

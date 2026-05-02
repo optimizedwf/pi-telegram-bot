@@ -100,6 +100,11 @@ const iconMap: Record<string, (props: SVGProps<SVGSVGElement>) => React.ReactEle
       <polyline points="9 18 15 12 9 6" />
     </svg>
   ),
+  arrowUpRight: (p) => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}>
+      <line x1="7" y1="17" x2="17" y2="7" /><polyline points="7 7 17 7 17 17" />
+    </svg>
+  ),
 };
 
 export type IconName = keyof typeof iconMap;

@@ -38,7 +38,7 @@ function compactCatalog(products) {
 
 function buildRecommendPrompt(catalog, intent, context = {}) {
   const budget = context.budget_cents
-    ? `\nBudget: $${(context.budget_cents / 100).toFixed(2)} max`
+    ? `\nBudget: $${(context.budget_cents / 100).toFixed(2)} max — penalize products over budget, boost products well under budget`
     : "";
   const occasion = context.occasion ? `\nOccasion: ${context.occasion}` : "";
   const country = context.country ? `\nPreferred country: ${context.country}` : "";
@@ -46,6 +46,21 @@ function buildRecommendPrompt(catalog, intent, context = {}) {
   const compact = compactCatalog(catalog);
 
   return `You are a Catholic concierge helping pilgrims find meaningful devotional gifts. You understand sacraments, feast days, holy sites, and the spiritual significance of Catholic objects.
+
+## Destination–Occasion Affinities
+- **Lourdes** = healing, anointing of the sick, comfort in suffering (Miraculous waters)
+- **Jerusalem** = anointing, ordination, wedding (Holy Land, Cana)
+- **Kraków** = Divine Mercy, first communion, baptism (St. Faustina)
+- **Fátima** = first communion, baptism, wedding (Our Lady's apparition to children)
+- **Guadalupe** = baptism, first communion, protection (Patroness of the Americas)
+- **Assisi** = confirmation, RCIA, ordination, peace, house blessing (St. Francis)
+
+## Scoring Rules
+- Score 1.0+ for a perfect destination + occasion + budget match
+- Score 0.7-0.9 for strong partial match
+- Score 0.4-0.6 for weak match
+- Score 0.1-0.3 for generic "may like"
+- **Budget penalty**: deduct 0.2 per $10 over budget; add 0.1 per $10 under budget (max +/- 0.5)
 
 === PRODUCT CATALOG ===
 ${JSON.stringify(compact, null, 2)}
@@ -239,21 +254,23 @@ function sse(data) {
 // ─── Determine if products should be shown ──────────────
 
 function shouldShowProducts(fullResponse, context, occasion, userMessage) {
-  // Always show products if user explicitly asked for recommendations
-  // Check both the new message and the last context message
+  // Always show if there's an occasion (gift-seeking intent)
+  if (occasion && occasion !== "just_browsing") return true;
+
+  // Explicit ask for recommendations
   const userTexts = [
     userMessage?.toLowerCase() || "",
     context?.[context.length - 1]?.content?.toLowerCase() || "",
   ];
-  const explicitAsk = /recommend|suggest|show me|what do you have|looking for|need|want|buy|gift|present|purchase|find/i;
+  const explicitAsk = /recommend|suggest|show me|what do you have|looking for|need|want|buy|gift|present|purchase|find|help|something/i;
   if (userTexts.some(t => explicitAsk.test(t))) return true;
 
-  // Show if the assistant mentioned specific products
-  const productMentions = fullResponse.match(/\b(?:Olive Wood|Tau Cross|Rosary|Icon|Scapular|Prayer Card|Holy Water|Statue|Medal)\b/gi);
+  // Show if the assistant mentioned specific products by name or by destination
+  const productMentions = fullResponse.match(/\b(?:Olive Wood|Tau Cross|San Damiano|Rosary|Icon|Scapular|Prayer Card|Holy Water|Statue|Medal|Anointing Oil|Wall Pendant|Peace Prayer|Divine Mercy|Fátima|Guadalupe|Lourdes|Assisi|Jerusalem|Kraków)\b/gi);
   if (productMentions && productMentions.length >= 1) return true;
 
-  // Show if it's an occasion-driven query
-  if (occasion && occasion !== "just_browsing") return true;
+  // Show if the response is long-ish (meaningful recommendation)
+  if (fullResponse.length > 300) return true;
 
   return false;
 }
@@ -262,18 +279,32 @@ function shouldShowProducts(fullResponse, context, occasion, userMessage) {
 
 function extractMatchingProducts(fullResponse, catalog) {
   const compact = compactCatalog(catalog);
+  const respLower = fullResponse.toLowerCase();
   const matches = [];
 
   for (const p of compact) {
-    // Check if product title words appear in the response
-    const titleWords = p.title.toLowerCase().split(/\s+/).filter(w => w.length > 3);
-    const respLower = fullResponse.toLowerCase();
+    const title = p.title.toLowerCase();
+    // Check for exact product name mention
+    if (respLower.includes(title)) {
+      matches.push({ ...p, _matchQuality: "exact" });
+      continue;
+    }
+    // Check significant words from title (skip short/common words)
+    const titleWords = title.split(/\s+/).filter(w => w.length > 4 && !/rosary|cross|icon|medal|card|water|oil|set/i.test(w));
+    if (titleWords.length === 0) continue;
     const matchCount = titleWords.filter(w => respLower.includes(w)).length;
-
-    if (matchCount >= 2 || respLower.includes(p.product_id?.toLowerCase())) {
-      matches.push({ ...p });
+    const matchRatio = matchCount / titleWords.length;
+    if (matchRatio >= 0.6) {
+      matches.push({ ...p, _matchQuality: "partial" });
     }
   }
+
+  // Prioritize exact matches, then by price
+  matches.sort((a, b) => {
+    if (a._matchQuality === "exact" && b._matchQuality !== "exact") return -1;
+    if (b._matchQuality === "exact" && a._matchQuality !== "exact") return 1;
+    return 0;
+  });
 
   return matches.slice(0, 4); // max 4 product cards
 }
@@ -316,6 +347,7 @@ function toFrontendProduct(p) {
     category: (p.sacrament_tags || [])[0] || "devotional",
     inStock: p.inventory_status !== "out_of_stock",
     leadTime: p.lead_time_days ? `${p.lead_time_days} days` : undefined,
+    buyUrl: p.buy_url || "",
   };
 }
 

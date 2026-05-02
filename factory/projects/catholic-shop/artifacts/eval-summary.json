@@ -1,73 +1,85 @@
 {
   "base_url": "http://127.0.0.1:8110",
-  "generated_at": "2026-05-02T03:57:15Z",
-  "passed": false,
+  "generated_at": "2026-05-02T07:22:13Z",
+  "passed": true,
   "checks": [
     {
       "name": "health_gate",
       "passed": true,
       "detail": "health endpoint valid",
-      "elapsed_ms": 2140.99
+      "elapsed_ms": 51.26
     },
     {
       "name": "catalog_gate",
       "passed": true,
       "detail": "catalog returned items",
-      "elapsed_ms": 10.73
+      "elapsed_ms": 27.93
     },
     {
       "name": "destination_browse_gate",
       "passed": true,
       "detail": "destinations endpoint + filtered catalog valid",
-      "elapsed_ms": 32.48
+      "elapsed_ms": 37.99
     },
     {
       "name": "ai_recommend_gate",
       "passed": true,
       "detail": "recommendations returned",
-      "elapsed_ms": 10840.11
+      "elapsed_ms": 8046.95
+    },
+    {
+      "name": "ranking_eval_gate",
+      "passed": true,
+      "detail": "6/6 golden tests passed",
+      "elapsed_ms": 48186.98
+    },
+    {
+      "name": "chat_sse_gate",
+      "passed": true,
+      "detail": "SSE stream valid (6360 bytes)",
+      "elapsed_ms": 14518.63
     },
     {
       "name": "social_gate",
       "passed": true,
       "detail": "social draft payload valid",
-      "elapsed_ms": 9.64
+      "elapsed_ms": 20.82
     },
     {
       "name": "mobile_html_gate",
-      "passed": false,
-      "detail": "missing bottom nav scaffold",
-      "elapsed_ms": 15.27
+      "passed": true,
+      "detail": "viewport and bottom nav present",
+      "elapsed_ms": 39.2
     },
     {
       "name": "auth_saved_gate",
       "passed": true,
       "detail": "guest auth and save/unsave flow valid",
-      "elapsed_ms": 36.82
+      "elapsed_ms": 102.65
     },
     {
       "name": "cart_checkout_intent_gate",
       "passed": true,
       "detail": "cart add/update + checkout intent idempotency valid",
-      "elapsed_ms": 42.06
+      "elapsed_ms": 145.06
     },
     {
       "name": "checkout_order_ops_gate",
       "passed": true,
       "detail": "dry-run checkout + order ops valid",
-      "elapsed_ms": 40.9
+      "elapsed_ms": 96.95
     },
     {
       "name": "analytics_gate",
       "passed": true,
-      "detail": "post + summary valid (total: 10, event_id: dae9971f-7ffa-4b4c-aee1-606517fe5b38)",
-      "elapsed_ms": 15.16
+      "detail": "post + summary valid (total: 110, event_id: 4a51d2b5-34cf-4276-b1f7-d3b53f9d4ebc)",
+      "elapsed_ms": 31.62
     }
   ],
   "summary": {
-    "total": 10,
-    "passed": 9,
-    "failed": 1,
-    "p95_ms": 2140.99
+    "total": 12,
+    "passed": 12,
+    "failed": 0,
+    "p95_ms": 14518.63
   }
 }

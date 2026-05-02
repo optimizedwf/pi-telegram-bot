@@ -5,197 +5,61 @@
 - Role: coding/research/operator assistant in Telegram bot
 - Scope rule: Chow and Jose are separate; never repoint Chow when troubleshooting Jose
 
+## Company Progress (2026-05-02)
+- Phase 1: DONE — 6 repos pushed to github.com/BAGWATCHER
+- Phase 2: 70% — agent fabric live (heartbeat, queue, dashboard), blocked on Dell SSH activation
+- Phase 3-5: pending
+
+### Agent OS v1.1
+- Path: `/home/ubuntu/agent-os/`
+- PM2: `agent-os-api` (8200), `chow-heartbeat`
+- Endpoints: GET/POST registry, heartbeat, queue, agent status, task dispatch/complete
+- Dashboard: `http://40.75.10.4/agent-os/` — live heartbeat + queue per agent
+- Chow SSH key for Dell: `~/.ssh/chow_hector_ed25519`
+- Reverse SSH tunnel from Dell: `localhost:2222` (authentication blocked)
+- Dell needs: `sudo apt install openssh-server -y && sudo systemctl enable --now ssh` + add chow key to authorized_keys
+
 ## Active Projects
 
-### BearingBrain / PartsBrain (agent-side baseline)
+### BearingBrain / PartsBrain
 - Path: `/home/ubuntu/partsbrain` (web: `/home/ubuntu/partsbrain/web`)
 - Stack: Next.js 16 + TypeScript + Postgres/pgvector + Docker
 - PM2: `partsbrain` (3001), domain `https://bearingbrain.com`
 - DB: `partsbrain-db` (`partsbrain/partsbrain/partsbrain_dev_pw`)
-- UI rules fixed: warm paper `#f9f7f4`, text `#1a1a1a`, typography-first, no cards/shadows/icons/gradients, brown `#7a3b10`, link blue `#2e5ea3`, text links with `→`
-- Current content scale: ~31,702 parts, ~25,718 cross-refs, ~31,767 sitemap URLs
-- Missing envs in `.env.local`: `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `NEXTAUTH_SECRET`, `NEXTAUTH_URL`
-- New-server note (2026-04-16): apply same required auth/checkout envs there
-- External API/commercial live:
-  - `GET /api/v1/{capabilities,search,stats,feeds/health}`
-  - `POST /api/v1/quotes`, `GET /api/v1/quotes/{quoteId}`
-  - `POST /api/v1/agentic/checkout-intents`, `GET /api/v1/agentic/checkout-intents/{intentId}`
-- OAuth discovery/auth scaffolds live:
-  - `/.well-known/oauth-protected-resource`
-  - `/.well-known/oauth-authorization-server`
-  - `POST /api/v1/oauth/introspect`
-  - `BEARINGBRAIN_MCP_AUTH_MODE=none|required`
-- Developer onboarding phase-1 stubs live (`/developers`, signup, key CRUD/rotate)
-- Priorities: agent discoverability, self-serve API onboarding, merchant/distribution, chat/API stability
+- UI rules: warm paper `#f9f7f4`, text `#1a1a1a`, brown `#7a3b10`, link blue `#2e5ea3`
+- Scale: ~31,702 parts, ~25,718 cross-refs, ~31,767 sitemap URLs
+- External API: `/api/v1/{capabilities,search,stats,feeds/health,quotes,agentic/checkout-intents}`
+- OAuth/MCP/developer onboarding scaffolds live
 
-### Energy Zillow / DemandGrid (dark-factory active priority)
-- Naming/live rename done (2026-04-17): product name `DemandGrid`, API title `DemandGrid API`
+### DemandGrid
 - Path: `/home/ubuntu/pi-telegram-bot/factory/projects/energy-zillow`
-- Product mode: channel-agnostic multi-product opportunity engine (roofing/solar/hvac/battery) with AI outreach + investigation workflows; evolving toward vertical-agnostic superhuman sales OS
-- Live demo PM2: `energy-zillow-demo` on `127.0.0.1:8099`
-- Public URL: `http://20.122.197.143/energy-zillow/`
-- Ops note (2026-04-22): recovered demo outage (`502` via missing local listener on `127.0.0.1:8099`) by restarting `energy-zillow-demo`; verified local/public `200`; saved PM2 process list
-- Board scale now: **64 ZIPs**, **66,941 scored sites**, **1,000 H3 cells**
-- Queue status: EZ-001..EZ-021 done-local; EZ-022 in-progress; EZ-023/024/025/026/027 done-local; EZ-028 in-progress-local; DG-001..DG-004 in-progress-local; DG-005..DG-010 in-progress-local while Codex tests live stack; DG-011 Craigslist job-signal lane scaffold shipped-local
-- Key shipped lanes:
-  - EZ-012 lead workflow labels (`lead_temperature`, `operator_next_step`)
-  - EZ-013 status persistence (`GET/PUT /api/v1/operator/status*`)
-  - EZ-014 route planning (`GET /api/v1/operator/route-plan`)
-  - EZ-015 frontend quick actions + route CSV
-  - EZ-016 storm trigger integration + merge contract
-  - EZ-017 outage trigger integration
-  - EZ-018 flood trigger lane (NWS)
-  - EZ-019 equipment-age lane (Census proxy)
-  - EZ-020A pi-style copilot lane (API + frontend + eval)
-  - EZ-021 FEMA parcel floodplain lane expanded broad-board and closed local; DG-011 Craigslist job-signal + outreach-queue lane shipped (RSS ingest + manual import fallback due Craigslist `403` from Azure IP)
-- EZ-021 latest state:
-  - `data/raw/fema_floodplain_site_feed.csv`: **63,659 rows** (`57,859` newly fetched in expansion), `verified=912`
-  - FEMA overlay currently maps **63,659 / 66,941** trigger rows (residual `3,282` unmatched rows as board expanded)
-  - Artifacts: `artifacts/fema-floodplain-fetch-summary.{md,json}`, `artifacts/fema-floodplain-trigger-summary.{md,json}`, `artifacts/fema-floodplain-coverage.md`
-- EZ-022 latest state (in-progress, expanded):
-  - Permit feed now `data/raw/parcel_permit_feed.csv` with **7,471** mapped rows
-  - Municipal slices:
-    - Boston `02118/02186/02468`: `2,391` mapped rows, `847/6,622` matched scope sites (`fallback rows=472`)
-    - Providence `02903`: `909` mapped rows, `138/246` matched sites (`fallback rows=580`)
-    - Cambridge `02139`: `4,171` mapped rows, `918/1,825` matched sites (`fallback rows=1,505`)
-  - New ingest adapter: `scripts/fetch_cambridge_permit_feed.py`
-  - Permit artifacts include `artifacts/cambridge-permit-fetch-summary.{md,json}` + updated permit trigger artifacts
-  - Join-quality hardening in permit fetchers: house-range/multi-number parsing + nearest-house same-street fallback matching
-- Trigger/overlay stability hardening (2026-04-17):
-  - `scripts/project_fema_floodplain_triggers.py` and `scripts/project_parcel_permit_triggers.py` now preserve full trigger contract columns (prevents permit-field loss when FEMA/permit overlays run in sequence)
-- EZ-023 utility/tariff lane done-local:
-  - OpenEI mapping **53,965 / 61,834** (87.3%)
-  - Tariff delta artifact: total modeled annual savings delta `+$20.86M`, median per-site `+$280`
-- Copilot surface (EZ-020A):
-  - `GET /api/v1/agent/capabilities`
-  - `POST /api/v1/agent/chat`
-  - Framework: `pi-tool-router-v1`
-- Outreach/investigation API surface:
-  - `GET /api/v1/investigation/site/{site_id}`
-  - `GET /api/v1/outreach/policy`
-  - `GET /api/v1/outreach/site/{site_id}`
-  - `GET /api/v1/outreach/payloads`
-  - Framework ids: `pi-investigation-v1`, `pi-outreach-router-v1`
-- DG wave-1 platform scaffolds live (2026-04-17):
-  - Revenue graph: `GET /api/v1/revenue-graph/{site|account|contact}`
-  - Signal mesh: `GET /api/v1/signals/site/{site_id}`, `GET /api/v1/signals/coverage`
-  - Decision engine v1: `GET /api/v1/decision/site/{site_id}`, `POST /api/v1/decision/batch`
-  - Universal schema: `GET /api/v1/schema/sales-core`, `GET /api/v1/schema/vertical/{vertical_id}`
-- DG-005 playbook compiler local scaffold (2026-04-18):
-  - `POST /api/v1/playbooks/compile`
-  - `GET /api/v1/playbooks/{playbook_id}`
-  - Artifacts: `artifacts/playbook-compiler-v1.md`, `artifacts/playbook-examples.json`
-- DG-006 outreach agent connector local scaffold (2026-04-18):
-  - `POST /api/v1/agents/outreach/jobs`
-  - `GET /api/v1/agents/outreach/jobs/{job_id}`
-  - `POST /api/v1/agents/outreach/events`
-  - Persisted job store: `data/processed/outreach_jobs.json`
-  - Artifacts: `spec/agent-outreach-contract.md`, `artifacts/outreach-job-lifecycle.md`, `artifacts/outreach-job-smoke.json`
-  - Behavior: idempotent job create, policy-safe blocking for suppressed leads, append-only event log inside job record
-- DG-007 calling agent connector local scaffold (2026-04-18):
-  - `POST /api/v1/agents/calling/sessions`
-  - `GET /api/v1/agents/calling/sessions/{session_id}`
-  - `POST /api/v1/agents/calling/events`
-  - Persisted session store: `data/processed/calling_sessions.json`
-  - Artifacts: `spec/agent-calling-contract.md`, `artifacts/calling-session-eval.md`, `artifacts/calling-session-smoke.json`
-  - Behavior: pre-call brief generation, live assist session state, event log, and lead outcome sync on qualifying call events
-- DG-008 orchestrator local scaffold (2026-04-18):
-  - `POST /api/v1/orchestrator/runs`
-  - `GET /api/v1/orchestrator/runs/{run_id}`
-  - `POST /api/v1/orchestrator/actions/{action_id}/approve`
-  - Persisted run store: `data/processed/orchestrator_runs.json`
-  - Artifacts: `spec/orchestrator-state-machine.md`, `artifacts/orchestrator-runbook.md`, `artifacts/orchestrator-smoke.json`
-  - Behavior: deterministic action graph (`compile_playbook`, `create_outreach_job`, `create_calling_session`, `schedule_follow_up_review`), approval gating, auto-execute mode, and idempotent run replay by `site_id + idempotency_key`
-- DG-009 learning loop local scaffold (2026-04-18):
-  - `POST /api/v1/outcomes`
-  - `GET /api/v1/outcomes/summary`
-  - `POST /api/v1/learning/retrain-jobs`
-  - Persisted learning job store: `data/processed/learning_jobs.json`
-  - Lead outcome schema expanded with attribution fields: `attribution_channel`, `attribution_playbook_id`, `attribution_orchestrator_run_id`, `attribution_signal_keys`, `attribution_source_session_id`, `attribution_source_job_id`
-  - Artifacts: `artifacts/learning-loop-v1.md`, `artifacts/policy-promotion-checklist.md`, `artifacts/learning-loop-smoke.json`
-  - Behavior: attribution-aware outcome writes, summary metrics for channels/signals/completeness, and retrain-job safety checks for minimum outcomes + attribution completeness + approver on non-dry-run promotion
-- DG-010 governance layer local scaffold (2026-04-18):
-  - `GET /api/v1/governance/policies`
-  - `POST /api/v1/governance/policies/validate`
-  - `GET /api/v1/manager/command`
-  - Governance config: `config/governance_policy.json`
-  - Artifacts: `spec/governance-controls-v1.md`, `artifacts/manager-command-spec.md`, `artifacts/governance-smoke.json`
-  - Behavior: role-aware approval validation, queryable `governance_audit[]` on orchestrator runs, and manager risk/coaching surface aligned to pipeline truth
-- Eval status:
-  - `artifacts/eval-summary.md` PASS on widened board after DG-005..DG-010 local scaffold work
-  - Current snapshot: `zips=64`, `sites=66,941`, `h3=1,000`
-  - Outreach/investigation/permit/closed-loop gates PASS
-  - Eval hotfix applied in `eval/run_eval.py`: permit gate bug fixed (`rows` -> `scored`)
-- Factory tracking:
-  - `queue.yaml` updated at `2026-04-18T07:04:31Z`
-  - `factory/queues/pending.ndjson` includes `factory-energy-zillow-progress-037/038` for DG activation + wave-1 scaffold ship
-  - Run artifacts: `artifacts/run-status-2026-04-17.md`, `artifacts/run-status-2026-04-18.md`
-  - Parallel coordination artifacts live: `artifacts/parallel-agent-handoff-protocol.md`, `artifacts/agent-lane-claims.json`
-- Vision doc refreshed (2026-04-17): `spec/north-star-sales-ai-platform.md` upgraded to whole-system Superhuman Sales OS framing (multi-agent architecture, current-stage mapping, dark-factory alignment gates, phased roadmap)
-- Lane roadmap drafted (2026-04-17): `spec/dg-superhuman-sales-lane-plan-v1.md` defines DG-001..DG-010 with owners, API contracts, eval gates, wave dependencies; linked in `manifest.yaml` as `goal.lane_plan_doc`
-- Lane roadmap activated (2026-04-17): `queue.yaml` includes DG-001..DG-010 execution tickets; DG wave-1 scaffolds shipped and claims marked `ready-for-handoff` in `artifacts/agent-lane-claims.json`; progress tracked in `factory/queues/pending.ndjson` (`factory-energy-zillow-progress-037/038`)
-- Archon harnesses added (2026-04-21): DemandGrid ops (`demandgrid-eval-gate`, `demandgrid-live-smoke`, `demandgrid-lane-context`, `demandgrid-lane-implement`, `demandgrid-lane-implement-optimized`) + website optimizer (`optimizedworkflow-site-optimizer` targeting `/home/ubuntu/adam-landing`); artifacts include `artifacts/archon-*.{json,md,log}` and DemandGrid note `artifacts/archon-demandgrid-harnesses.md`; DG run `5a8468...` lacked implementation artifact due Codex limit warning, DG run `991b076...` rejected for tool-read fallback, website optimizer run paused for approval: `d980c74754a939e5ced564c3ecefa3be`
-- UI directive remembered: freeze polish by default unless explicitly requested; clarity/mobile pass already shipped in `frontend/index.html`
+- PM2: `energy-zillow-demo` (`127.0.0.1:8099`)
+- Public: `http://20.122.197.143/energy-zillow/`
+- Board: 64 ZIPs, 66,941 scored sites, 1,000 H3 cells
+- Lanes EZ-001..EZ-028, DG-001..DG-011 shipped; eval PASS
+
+### Catholic Shop
+- Path: `/home/ubuntu/pi-telegram-bot/factory/projects/catholic-shop`
+- PM2: `catholic-shop-demo`, `catholic-concierge`
+- Public: `/catholic-shop/` + `/catholic-shop/ops`
+- Lanes CS-001..CS-018 shipped; eval PASS 9/9
+- Stripe: restricted live key at `/home/ubuntu/.chow-secrets/stripe.env`
 
 ### Rico (trading)
 - Path: `/home/ubuntu/trenchfeed-trader`
 - PM2: `rico-v3`, `rico-trenchfeed`, `rico-dashboard`, `rico-chart-ui`, `rico-chart-bridge`
-- Main blocker: Gemini 429/rate-limit pressure
-- Runtime: core loops online; browser intel degraded due missing `playwright`/Chromium
-- Premium channel: `-1003493053497`
-- Fee preference: pro 0 bps, non-pro 100 bps
-
-### BagWatcher
-- Path: `/home/ubuntu/BAG-WATCHER-AI`
-- Frontend: `https://adamn.info/bagwatcher`
-- API: `https://adamn.info/bagwatcher-api/*` -> `127.0.0.1:3980`
-- Known debt: persistence/security/webhook authenticity/runbook hardening
-
-### Hive
-- Path: `/home/ubuntu/hive`
-- PM2: `hive`, `hive-tunnel`, `chow`
-- Main room: `c` (adam)
-- Durable manager agent: `MrChow-Manager` (`AQss64oUXTBi`)
 
 ## Server / Infra
-- Host: Ubuntu `/home/ubuntu`
-- PM2 core includes `partsbrain`, `rico-*`, `chow`, `hive`, `horus-relay`, `energy-zillow-demo`, `catholic-shop-demo`
-- Preferred VM target: Azure `40.75.10.4` (`ubuntu`, key `~/.ssh/azure_rico_key`)
-- Azure: `awscli` installed; AWS creds still missing (`sts get-caller-identity` fails)
-- GitHub state: no git remotes configured in `/home/ubuntu/partsbrain/web` or `/home/ubuntu/BAG-WATCHER-AI`; active `gh` account `BAGWATCHER`
-- Archon/Pi tooling update (2026-04-21):
-  - Archon CLI binary installed (`/usr/local/bin/archon`, v0.3.6, commit `59cda08e`) but this build rejects `provider: pi` in workflow validation
-  - Bun installed (`~/.bun/bin/bun`, v1.3.13); Archon source clone at `/home/ubuntu/Archon` (commit `5ed38dc7`) with Pi-capable runner wrapper `/home/ubuntu/pi-telegram-bot/scripts/archon-pi.sh`
-  - Repo `/home/ubuntu/pi-telegram-bot` initialized as git (`main`); repo-level Archon files at `.archon/{config.yaml,workflows/archon-plannotator-piv.yaml,workflows/archon-plannotator-piv-pi.yaml,workflows/e2e-pi-codex-smoke.yaml,workflows/demandgrid-*}`
-  - Pi local package installed: `npm:@plannotator/pi-extension` (project-local via `.pi/settings.json`)
-  - Pi model preference now set to full model `openai-codex/gpt-5.4` (not mini) across repo Archon config/workflows
-  - Mixed-provider plannotator workflow hits Claude auth block; Pi-only variant `archon-plannotator-piv-pi` runs with Pi global login and reaches clarify/plan phases
-  - Previous run `6d062cc9250eed2534b32226af9bc8a1` was abandoned to unblock model switch and fresh reruns; `.pi/agent/auth.json` was restored from backup after accidental zero-byte overwrite
-  - Pi OAuth health revalidated (2026-04-21): direct `npx pi --model openai-codex/gpt-5.4 -p` and Archon workflow `e2e-pi-oauth-check` both PASS
+- Host: Azure `40.75.10.4`, Ubuntu 22.04, SSH key `~/.ssh/azure_rico_key`
+- PM2 core: partsbrain, rico-*, chow, hive, relay, energy-zillow-demo, catholic-shop-demo, catholic-concierge, agent-os-api, chow-heartbeat, adam-landing
+- Caddy reverse proxy for all web services
+- Secrets: `/home/ubuntu/.chow-secrets/` (Cloudflare, Porkbun, Stripe), `/home/ubuntu/.vault/keys/` (GitHub PAT)
+- Archon CLI v0.3.6; Pi `openai-codex/gpt-5.4`; Bun installed
+- Dell console: RDP via XRDP+XFCE, user `rdpuser`, NSG allowlist `38.7.155.99/32`
 
-## User Preferences / Directives
-- Fast, direct, action-first responses; low hype
-- Priority override: during dark-factory sprint, prioritize DemandGrid over unrelated pivots
-- User preference (2026-04-17): keep dark-factory team/parallel lanes engaged to maximize throughput
-- User preference (2026-04-17): Chow should continue independently/autonomously on vision-aligned lanes without repeated prompting
-- User preference (2026-04-17): DemandGrid should become the most advanced AI sales system across verticals so entry-level reps can execute at superhuman/top-rep level
-- User preference (2026-04-17): prioritize whole-system Sales OS architecture/execution (data + decisions + workflows + automation + learning loop), not chatbot-only framing
-- User preference (2026-04-17): target end-state is autonomous multi-agent execution where calling + outreach agents are connected and handle most sales operations end-to-end
-- Parallel agent context (2026-04-17): Codex agent is running directly on VM; Chow can observe process/file outputs but not Codex chat internals
-- Parallel agent context (2026-04-18): Codex is actively testing DemandGrid now; prefer low-collision local lane work until current test cycle finishes
-- User preference (2026-04-18): approved continuing DemandGrid execution during Codex test cycle
-- User preference (2026-04-18): continue to next DemandGrid lane when asked (`Next` / `Yes`)
-- Resume rule: if parallel agents ran while Chow was down, resync artifacts/context first then continue
-- Parallel-agent caution: keep changes low-collision and avoid risky overlapping edits
-- Product direction: AI outreach execution + investigation intelligence integration (not door-to-door-only); new user concepts: Craigslist job-posting signal lane (2026-04-23) and Catholic commerce concept (2026-04-25) — global Catholic shop aggregator for unique store-level items with AI + social distribution; user note: dad already has item list (ingest later), so build platform/core flows first with mobile UI as priority; Catholic dark-factory wave-1 live at `/home/ubuntu/pi-telegram-bot/factory/projects/catholic-shop` (manifest/queue/lane claims/eval PASS, public routes `/catholic-shop/` + `/catholic-shop/ops`) with CS-004 guest-auth + saved-items, CS-005 cart + checkout-intent scaffold shipped-local (cart APIs + mobile cart UI + idempotent intent replay + `spec/checkout-contract-v1.md`), CS-011 UI clean-pass (no nested boxes), CS-012 browse-by-destination, CS-014 starter inventory sourcing/import pipeline, CS-015 sell-now Stripe buy-now + order-ops (live checkout smoke PASS), CS-016 ops dashboard, CS-017 concierge relevance hardening, and CS-018 mobile shopping polish shipped-local; latest Catholic eval PASS `9/9` with `cart_checkout_intent_gate`; user feedback (2026-04-25): keep UI cleaner and avoid nested box-heavy layouts, improve typography/readability, avoid generic "AI-generated" visual feel, and expect direct mobile UI audits
-- Data moat priority: richer business/address-level data coverage and quality
-- Collaboration split: other agents handle human UX/site threads; Chow handles agent-side execution
-- User signal (2026-04-21): strong interest in Pi/Archon minimal-harness approach; prioritize controllable prompts, low bloat, predictable token usage, prefer full Pi model `openai-codex/gpt-5.4` over mini, maintain an organized agent build-materials library (added scheduling candidate `https://www.cal.diy/`), and when saying optimized workflow for website prioritize `optimizedworkflow.dev` lane over DemandGrid interpretation
-- User directive (2026-04-25): operate as AI-first engineers by default across new builds (agentic workflows, automation leverage, not manual-heavy implementation) and execute via dark-factory team lanes
-- User directive (2026-04-26): resume Catholic Shop execution when asked and continue shipping next lanes autonomously
-- Sensitive credential note (2026-04-25): Stripe restricted live key saved for Chow at `/home/ubuntu/.chow-secrets/stripe.env` (600 perms); keep out of memory/docs and source into project env only when checkout lane is activated
-- Mac instability note: prioritize offloading critical local data to Azure when requested; Dell-as-console request (2026-04-23) configured on `rico-prod-vm` via XRDP+XFCE + SSH key access for user `rdpuser` (authorized key `rico-prod-vm-adamn`), RDP login password set to user-requested simple credential (2026-04-25) and should be rotated later, with NSG RDP allowlist `38.7.155.99/32`
-## Learning / Voice Memory
-- Gauntlet prep active: project-first shipping + interview-grade articulation
-- Pi/Archon setup artifact added (2026-04-21): `learning-center/tracks/pi-coding-agent/research-updates/2026-04-21-archon-pi-setup.md`; agent materials library seeded at `learning-center/shared/agent-build-materials-library.md` + `learning-center/data/agent-build-materials.json`
-- Voice preference: masculine “Mr Chow energy”; Gemini preferred; avoid risky celebrity cloning
+## User Preferences
+- Fast, direct, action-first; low hype
+- AI-first engineering by default (agentic, automated, not manual)
+- Dark-factory parallel lanes for throughput
+- DemandGrid → most advanced AI sales system across verticals
+- Catholic Shop: mobile-first, clean UI, no nested boxes
