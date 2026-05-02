@@ -1,0 +1,305 @@
+{
+	email admin@adamn.info
+	acme_ca https://acme-v02.api.letsencrypt.org/directory
+}
+
+adamn.info, optimizedworkflow.dev {
+	handle /chow/api/* {
+		uri strip_prefix /chow/api
+		reverse_proxy 127.0.0.1:3849
+	}
+	handle /chow/* {
+		uri strip_prefix /chow
+		reverse_proxy 127.0.0.1:3849
+	}
+	handle /chow {
+		redir /chow/ permanent
+	}
+	handle /terminal/* {
+		uri strip_prefix /terminal
+		basicauth {
+			adam $2a$14$b9Xxxp27Leohi9US.txkHOIbdPdliQQZMPwFibbYmtYp8pgoejduS
+		}
+		reverse_proxy 127.0.0.1:3850
+	}
+	handle /terminal {
+		redir /terminal/ permanent
+	}
+
+	# BagWatcher routes
+	handle /bagwatcher-api* {
+		uri strip_prefix /bagwatcher-api
+		reverse_proxy 127.0.0.1:3980
+	}
+	@bagwatcher_root path /bagwatcher
+	handle @bagwatcher_root {
+		root * /var/www/bagwatcher
+		rewrite * /index.html
+		file_server {
+			hide .git Caddyfile
+		}
+	}
+	handle_path /bagwatcher/* {
+		root * /var/www/bagwatcher
+		try_files {path} /index.html
+		file_server {
+			hide .git Caddyfile
+		}
+	}
+
+	# KUAILE landing route
+	@kuaile_root path /kuaile
+	handle @kuaile_root {
+		root * /var/www/kuaile
+		rewrite * /index.html
+		file_server {
+			hide .git Caddyfile
+		}
+	}
+	handle_path /kuaile/* {
+		root * /var/www/kuaile
+		try_files {path} /index.html
+		file_server {
+			hide .git Caddyfile
+		}
+	}
+
+	# Agent OS — operations console
+	handle /api/agent-os/* {
+		reverse_proxy 127.0.0.1:8200
+	}
+	handle /agent-os {
+		redir /agent-os/ temporary
+	}
+	handle_path /agent-os/* {
+		root * /home/ubuntu/agent-os/ops/dashboard
+		file_server
+	}
+
+	# Energy Zillow demo mounted at /energy-zillow
+	@energy_api {
+		path /api/v1/*
+		header_regexp EnergyReferer Referer ^https?://(www\.)?(adamn\.info|optimizedworkflow\.dev)/energy-zillow
+	}
+	handle @energy_api {
+		reverse_proxy 127.0.0.1:8099
+	}
+	handle /energy-zillow {
+		redir /energy-zillow/ temporary
+	}
+	handle_path /energy-zillow/* {
+		reverse_proxy 127.0.0.1:8099
+	}
+
+	# Catholic Market demo mounted at /catholic-shop
+	handle /catholic-shop {
+		redir /catholic-shop/ temporary
+	}
+	handle_path /catholic-shop/* {
+		reverse_proxy 127.0.0.1:8110 {
+			flush_interval -1
+		}
+	}
+
+	# Static assets for Catholic Market (destination images etc)
+	handle /static/* {
+		reverse_proxy 127.0.0.1:8110
+	}
+
+	# PumpOrDumper (signal swipe app) mounted under /trench/swipe
+	@swipe_next {
+		path /_next/*
+		header_regexp SwipeReferer Referer ^https?://(www\.)?(adamn\.info|optimizedworkflow\.dev)/trench/swipe
+	}
+	handle @swipe_next {
+		reverse_proxy 127.0.0.1:3851
+	}
+	@swipe_api {
+		path /api/*
+		header_regexp SwipeApiReferer Referer ^https?://(www\.)?(adamn\.info|optimizedworkflow\.dev)/trench/swipe
+	}
+	handle @swipe_api {
+		reverse_proxy 127.0.0.1:3851
+	}
+	handle /trench/swipe {
+		redir /trench/swipe/ temporary
+	}
+	handle_path /trench/swipe/* {
+		reverse_proxy 127.0.0.1:3851 {
+			header_down Location ^/(.*)$ /trench/swipe/$1
+		}
+	}
+
+	handle /trench {
+		redir /trench/dashboard temporary
+	}
+	handle /trench/charts* {
+		redir https://trenchfeed.fun{uri} 308
+	}
+	handle /trench/chart-bridge {
+		redir /trench/chart-bridge/ temporary
+	}
+	handle_path /trench/chart-bridge/* {
+		reverse_proxy 127.0.0.1:3002 {
+			flush_interval -1
+		}
+	}
+	handle /trench/rico-chat {
+		redir /trench/rico-chat/ temporary
+	}
+	handle_path /trench/rico-chat/* {
+		reverse_proxy 127.0.0.1:4010 {
+			flush_interval -1
+		}
+	}
+	handle_path /trench/* {
+		reverse_proxy 127.0.0.1:3847 {
+			flush_interval -1
+		}
+	}
+
+	# Symphony compatibility routes for stale cached absolute paths
+	handle /dashboard.css {
+		reverse_proxy 127.0.0.1:4099
+	}
+	handle /vendor/* {
+		reverse_proxy 127.0.0.1:4099
+	}
+	handle /live {
+		reverse_proxy 127.0.0.1:4099
+	}
+	handle /live/* {
+		reverse_proxy 127.0.0.1:4099
+	}
+
+	# Symphony mounted at /symphony
+	handle /symphony {
+		redir * /symphony/ 308
+	}
+	handle /symphony* {
+		reverse_proxy 127.0.0.1:4099
+	}
+	handle /hq* {
+		uri strip_prefix /hq
+		reverse_proxy 127.0.0.1:3800
+	}
+	handle {
+		reverse_proxy 127.0.0.1:3000
+	}
+}
+
+www.optimizedworkflow.dev {
+	redir https://optimizedworkflow.dev{uri} permanent
+}
+
+www.bearingbrain.com {
+	redir https://bearingbrain.com{uri} permanent
+}
+
+bearingbrain.com {
+	reverse_proxy 127.0.0.1:3001
+}
+
+trenchfeed.fun, www.trenchfeed.fun {
+	@root path /
+	handle @root {
+		rewrite * /trench/charts
+		reverse_proxy 127.0.0.1:3003
+	}
+
+	handle /trench {
+		redir * /trench/charts 308
+	}
+	handle /trench/charts* {
+		reverse_proxy 127.0.0.1:3003
+	}
+	handle /trench/chart-bridge {
+		redir * /trench/chart-bridge/ temporary
+	}
+	handle_path /trench/chart-bridge/* {
+		reverse_proxy 127.0.0.1:3002 {
+			flush_interval -1
+		}
+	}
+	handle /trench/rico-chat {
+		redir * /trench/rico-chat/ temporary
+	}
+	handle_path /trench/rico-chat/* {
+		reverse_proxy 127.0.0.1:4010 {
+			flush_interval -1
+		}
+	}
+	handle_path /trench/* {
+		reverse_proxy 127.0.0.1:3847 {
+			flush_interval -1
+		}
+	}
+
+	handle {
+		redir * /trench/charts 308
+	}
+}
+
+docs.bearingbrain.com {
+	@docs_assets path /_next/* /favicon.ico /favicon* /icon* /apple-touch-icon* /site.webmanifest /manifest* /robots.txt /sitemap* /opengraph-image* /twitter-image*
+	handle @docs_assets {
+		reverse_proxy 127.0.0.1:3001
+	}
+	@docs_path path /docs*
+	handle @docs_path {
+		reverse_proxy 127.0.0.1:3001
+	}
+	handle {
+		rewrite * /docs{uri}
+		reverse_proxy 127.0.0.1:3001
+	}
+}
+
+http://40.75.10.4 {
+	# Agent OS console
+	handle /api/agent-os/* {
+		reverse_proxy 127.0.0.1:8200
+	}
+	handle /agent-os {
+		redir /agent-os/ temporary
+	}
+	handle_path /agent-os/* {
+		root * /home/ubuntu/agent-os/ops/dashboard
+		file_server
+	}
+
+	# Energy Zillow direct IP demo path
+	@energy_api_ip {
+		path /api/v1/*
+		header_regexp EnergyIPReferer Referer ^http://40\.75\.10\.4/energy-zillow
+	}
+	handle @energy_api_ip {
+		reverse_proxy 127.0.0.1:8099
+	}
+	handle /energy-zillow {
+		redir /energy-zillow/ temporary
+	}
+	handle_path /energy-zillow/* {
+		reverse_proxy 127.0.0.1:8099
+	}
+
+	# Catholic Market direct IP demo path
+	handle /catholic-shop {
+		redir /catholic-shop/ temporary
+	}
+	handle_path /catholic-shop/* {
+		reverse_proxy 127.0.0.1:8110 {
+			flush_interval -1
+		}
+	}
+
+	# Static assets for Catholic Market (destination images etc)
+	handle /static/* {
+		reverse_proxy 127.0.0.1:8110
+	}
+
+	handle {
+		# Default to a 404 or some other landing if needed
+		abort
+	}
+}
