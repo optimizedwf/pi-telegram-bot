@@ -1,12 +1,12 @@
 {
-  "decision": "fix_required",
+  "decision": "ship",
   "scope": "production-activation",
   "scores": {
-    "requirements": 8,
+    "requirements": 10,
     "code_quality": 9,
-    "test_coverage": 8,
-    "ux_or_output_quality": 8,
-    "maintainability": 8
+    "test_coverage": 9,
+    "ux_or_output_quality": 9,
+    "maintainability": 9
   },
   "checks": {
     "build_passes": true,
@@ -15,15 +15,14 @@
     "required_artifacts_present": true
   },
   "risks": [
-    "The final user-authenticated Telegram callback and force-reply canary is still paused awaiting operator input.",
     "AWS had two Chow supervisors sharing one Telegram token; PM2 chow is now stopped and user systemd chow.service is canonical.",
     "The canonical pi-hector checkout contains substantial pre-existing uncommitted work, so activation was installed as a backed-up surgical patch rather than a broad checkout replacement.",
-    "The bot repository has no configured lint command; focused tests, full bundle syntax, and runtime probes are green."
+    "The bot repository has no configured lint command; six focused tests, full bundle syntax, live canary, and runtime probes are green.",
+    "Existing npm audit findings remain a separate bounded maintenance lane."
   ],
-  "summary": "The canonical AWS Chow bot is active with fail-closed Archon gate controls and its duplicate PM2 poller is stopped. Unit, bundle, adapter, and supervisor-stability checks pass. Final SHIP requires the operator to answer the harmless Telegram canary with amber and prove terminal Archon completion.",
+  "summary": "The canonical AWS Chow bot is active with fail-closed Archon gate controls. The user-authenticated Telegram forum-topic canary resumed the exact bound job with amber and reached terminal SHIP with all required artifacts and a recorded response SHA. The temporary canary lane is removed, the adapter reports only flow and chow with zero errors, and the duplicate PM2 poller remains stopped.",
   "next_actions": [
-    "In the Chow Telegram chat, send /gates, tap Answer & continue, and reply amber.",
-    "Verify the exact managed job reaches completed with decision SHIP and all five eval artifacts.",
-    "Remove the temporary canary repository from the production project allowlist after proof."
+    "Handle existing dependency audit findings in a separate tested maintenance workflow.",
+    "Preserve the systemd chow.service ownership rule and keep the duplicate PM2 chow process stopped."
   ]
 }

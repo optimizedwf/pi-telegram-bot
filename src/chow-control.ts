@@ -54,6 +54,17 @@ export type ChowControlConfig = {
 
 export type ChowCommandRunner = (argv: string[]) => Promise<string>;
 
+export function matchesPendingGateAnswer(
+  pending: { promptMessageId: number; messageThreadId?: number },
+  replyToMessageId: number,
+  messageThreadId?: number,
+): boolean {
+  if (replyToMessageId === pending.promptMessageId) return true;
+  return Number.isInteger(pending.messageThreadId)
+    && Number(pending.messageThreadId) > 0
+    && messageThreadId === pending.messageThreadId;
+}
+
 function requireObject(value: unknown, label: string): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error(`${label} must be an object`);

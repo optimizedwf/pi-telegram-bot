@@ -5,6 +5,7 @@ import {
   gateHandle,
   listGateSelections,
   loadChowControlConfig,
+  matchesPendingGateAnswer,
   parseRecoveryReport,
   resolveGateSelection,
   type ChowCommandRunner,
@@ -88,4 +89,12 @@ test("continuation distinguishes approval and response gates", async () => {
   await assert.rejects(continueGate(approval, runner, "nope"), /does not accept/);
   await continueGate(approval, runner);
   assert.equal(calls[1].includes("--gate-response"), false);
+});
+
+test("pending answers match exact prompts or the explicitly armed forum topic", () => {
+  const pending = { promptMessageId: 42, messageThreadId: 7 };
+  assert.equal(matchesPendingGateAnswer(pending, 42), true);
+  assert.equal(matchesPendingGateAnswer(pending, 0, 7), true);
+  assert.equal(matchesPendingGateAnswer(pending, 0, 8), false);
+  assert.equal(matchesPendingGateAnswer({ promptMessageId: 42 }, 0, 7), false);
 });

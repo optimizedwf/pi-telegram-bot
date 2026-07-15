@@ -41,6 +41,7 @@ import {
   createChowCommandRunner,
   listGateSelections,
   loadChowControlConfig,
+  matchesPendingGateAnswer,
   resolveGateSelection,
   type ChowControlConfig,
   type ChowCommandRunner,
@@ -207,6 +208,7 @@ try {
 type PendingGateAnswer = {
   handle: string;
   promptMessageId: number;
+  messageThreadId?: number;
   expiresAt: number;
 };
 
@@ -1144,12 +1146,14 @@ async function handlePendingGateAnswer(ctx: any, text: string): Promise<boolean>
   const pending = pendingGateAnswers.get(key);
   if (!pending) return false;
   const replyToId = Number(ctx.message?.reply_to_message?.message_id || 0);
+  const messageThreadId = Number(ctx.message?.message_thread_id || 0) || undefined;
+  const matchesPending = matchesPendingGateAnswer(pending, replyToId, messageThreadId);
   if (Date.now() > pending.expiresAt) {
     pendingGateAnswers.delete(key);
-    if (replyToId === pending.promptMessageId) await ctx.reply("⌛ That gate-answer prompt expired. Run /gates and try again.");
-    return replyToId === pending.promptMessageId;
+    if (matchesPending) await ctx.reply("⌛ That gate-answer prompt expired. Run /gates and try again.");
+    return matchesPending;
   }
-  if (replyToId !== pending.promptMessageId) return false;
+  if (!matchesPending) return false;
   pendingGateAnswers.delete(key);
   if (!isChowControlAllowed(ctx.chat.id)) {
     await ctx.reply("⛔ Chow control is not enabled for this chat.");
@@ -3172,6 +3176,7 @@ bot.action(/^chowgate:(approve|answer):([a-f0-9]{16})$/, async (ctx) => {
       pendingGateAnswers.set(pendingGateKey(ctx.chat!.id, ctx.from?.id), {
         handle,
         promptMessageId: prompt.message_id,
+        messageThreadId: Number((prompt as any).message_thread_id || (ctx.callbackQuery.message as any)?.message_thread_id || 0) || undefined,
         expiresAt: Date.now() + GATE_ANSWER_TTL_MS,
       });
       return;
@@ -3191,7 +3196,8 @@ bot.on(message("text"), (ctx) => {
   const text = ctx.message.text;
   const pendingGate = pendingGateAnswers.get(pendingGateKey(chatId, ctx.from?.id));
   const replyToMessageId = Number((ctx.message as any)?.reply_to_message?.message_id || 0);
-  if (pendingGate && replyToMessageId === pendingGate.promptMessageId) {
+  const messageThreadId = Number((ctx.message as any)?.message_thread_id || 0) || undefined;
+  if (pendingGate && matchesPendingGateAnswer(pendingGate, replyToMessageId, messageThreadId)) {
     void handlePendingGateAnswer(ctx, text).then((handled) => {
       if (!handled) {
         getOrCreateSession(chatId)
