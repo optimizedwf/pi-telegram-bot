@@ -18,7 +18,8 @@
     "learn:add-note": "node --import tsx/esm scripts/learning-center/add-note.ts",
     "learn:build-context": "node --import tsx/esm scripts/learning-center/build-context.ts",
     "learn:status": "node --import tsx/esm scripts/learning-center/status.ts",
-    "factory:status": "node --import tsx/esm scripts/factory/status.ts"
+    "factory:status": "node --import tsx/esm scripts/factory/status.ts",
+    "test:chow-control": "node --import tsx/esm --test test/chow-control.test.ts"
   },
   "dependencies": {
     "@mariozechner/pi-coding-agent": "^0.71.0",

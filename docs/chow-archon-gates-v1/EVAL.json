@@ -1,0 +1,28 @@
+{
+  "decision": "ship",
+  "scope": "code-and-staged-release",
+  "scores": {
+    "requirements": 9,
+    "code_quality": 9,
+    "test_coverage": 8,
+    "ux_or_output_quality": 9,
+    "maintainability": 9
+  },
+  "checks": {
+    "build_passes": true,
+    "tests_pass": true,
+    "lint_passes": false,
+    "required_artifacts_present": true
+  },
+  "risks": [
+    "Live activation still requires an explicit control chat allowlist and a chow PM2 restart.",
+    "The bot repository has no configured lint command; syntax, focused tests, and diff checks are green.",
+    "The repository has pre-existing npm audit findings that need a separate bounded dependency pass."
+  ],
+  "summary": "Telegram parity is implemented as a fail-closed adapter over the installed Chow control plane. Unit, bundle, and live read-only bridge checks pass; production remains intentionally inactive pending restart approval.",
+  "next_actions": [
+    "Set CHOW_CONTROL_ALLOWED_CHAT_IDS and CHOW_CONTROL_PROJECTS_JSON in the live bot environment.",
+    "Restart only the chow PM2 process after explicit operator approval.",
+    "Create one harmless response-gate canary and prove the Telegram tap-to-terminal path."
+  ]
+}

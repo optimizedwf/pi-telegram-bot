@@ -36,6 +36,15 @@ import {
 import { createChowRuntime, findChowFallbackModel, getChowModelSelection, pinSessionModel, type ChowModelSelection } from "./pi-session.js";
 import { createTask, updateTask as updateTaskRecord, listTasks, getOutputPath, readOutput } from "./tasks.js";
 import { logChowFeedback } from "./learning-log.js";
+import {
+  continueGate as continueChowGate,
+  createChowCommandRunner,
+  listGateSelections,
+  loadChowControlConfig,
+  resolveGateSelection,
+  type ChowControlConfig,
+  type ChowCommandRunner,
+} from "./chow-control.js";
 import { HiveAgentRuntime, type HiveMessage, type HiveRunTurnInput, type HiveRunTurnResult } from "../../hive/sdk/src/index.js";
 import {
   loadJoseSnapshot,
@@ -81,6 +90,10 @@ const BOT_TO_BOT_MAX_DEPTH = 8; // max back-and-forth before forced silence
 const ALLOWED_CHAT_IDS = process.env.ALLOWED_CHAT_IDS
   ? process.env.ALLOWED_CHAT_IDS.split(",").map((s) => s.trim())
   : [];
+const CHOW_CONTROL_ALLOWED_CHAT_IDS = (process.env.CHOW_CONTROL_ALLOWED_CHAT_IDS || process.env.ALLOWED_CHAT_IDS || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
 const HIVE_WS_URL = process.env.HIVE_WS_URL?.trim() || "";
 const HIVE_HTTP_URL = (process.env.HIVE_HTTP_URL?.trim() || HIVE_WS_URL.replace(/^ws/i, "http").replace(/\/ws$/, "")).trim();
 const HIVE_AGENT_API_KEY = process.env.HIVE_AGENT_API_KEY?.trim() || "";
@@ -177,6 +190,28 @@ function loadMeetChatState(): Record<string, MeetChatState> {
 }
 
 const meetChatState: Record<string, MeetChatState> = loadMeetChatState();
+
+let chowControlConfig: ChowControlConfig;
+let chowCommandRunner: ChowCommandRunner;
+let chowControlConfigError = "";
+try {
+  chowControlConfig = loadChowControlConfig();
+  chowCommandRunner = createChowCommandRunner(chowControlConfig);
+} catch (error: any) {
+  chowControlConfigError = String(error?.message || error);
+  chowControlConfig = { binary: "/disabled", projects: [], timeoutMs: 30_000 };
+  chowCommandRunner = async () => { throw new Error(`Chow control is disabled: ${chowControlConfigError}`); };
+  console.error(`[chow-control] disabled: ${chowControlConfigError}`);
+}
+
+type PendingGateAnswer = {
+  handle: string;
+  promptMessageId: number;
+  expiresAt: number;
+};
+
+const pendingGateAnswers = new Map<string, PendingGateAnswer>();
+const GATE_ANSWER_TTL_MS = 10 * 60 * 1000;
 
 function saveMeetChatState(): void {
   try {
@@ -1045,6 +1080,90 @@ async function transcribeTelegramAudio(
 function isAllowed(chatId: number): boolean {
   if (ALLOWED_CHAT_IDS.length === 0) return true; // open if no allowlist
   return ALLOWED_CHAT_IDS.includes(String(chatId));
+}
+
+function isChowControlAllowed(chatId: number): boolean {
+  return CHOW_CONTROL_ALLOWED_CHAT_IDS.length > 0 && CHOW_CONTROL_ALLOWED_CHAT_IDS.includes(String(chatId));
+}
+
+function pendingGateKey(chatId: number, userId?: number): string {
+  return `${chatId}:${userId ?? "unknown"}`;
+}
+
+function summarizeGateMessage(message: string, max = 900): string {
+  const normalized = message.replace(/\s+/g, " ").trim();
+  return normalized.length > max ? `${normalized.slice(0, max - 1)}…` : normalized;
+}
+
+async function replyWithChowGates(ctx: any): Promise<void> {
+  if (!isChowControlAllowed(ctx.chat.id)) {
+    await ctx.reply("⛔ Chow control is not enabled for this chat.");
+    return;
+  }
+  if (chowControlConfigError) {
+    await ctx.reply(`⚠️ Chow control configuration is invalid: ${chowControlConfigError}`);
+    return;
+  }
+  if (!chowControlConfig.projects.length) {
+    await ctx.reply("⚠️ Chow control has no configured repositories.");
+    return;
+  }
+
+  const { gates, errors } = await listGateSelections(chowControlConfig, chowCommandRunner);
+  if (!gates.length) {
+    const suffix = errors.length ? `\n\nUnavailable: ${errors.join(" | ")}` : "";
+    await ctx.reply(`✅ No Archon workflows are waiting for your input.${suffix}`);
+    return;
+  }
+
+  await ctx.reply(`🧭 Recovery Inbox: ${gates.length} Archon gate${gates.length === 1 ? "" : "s"} waiting.`);
+  for (const selection of gates.slice(0, 10)) {
+    const needsAnswer = selection.gate.response_required;
+    const text = [
+      `${needsAnswer ? "✍️ Answer required" : "✅ Approval required"} · ${selection.project.name}`,
+      `Workflow: ${selection.item.workflow || "unknown"}`,
+      `Job: ${selection.item.job_id}`,
+      `Node: ${selection.gate.node_id}`,
+      selection.item.objective ? `Goal: ${summarizeGateMessage(selection.item.objective, 300)}` : "",
+      "",
+      summarizeGateMessage(selection.gate.message) || "Archon is waiting for operator input.",
+    ].filter(Boolean).join("\n");
+    const callback = `chowgate:${needsAnswer ? "answer" : "approve"}:${selection.handle}`;
+    await ctx.reply(text, {
+      reply_markup: {
+        inline_keyboard: [[{ text: needsAnswer ? "Answer & continue" : "Approve & continue", callback_data: callback }]],
+      },
+    });
+  }
+  if (gates.length > 10) await ctx.reply(`Showing 10 of ${gates.length} gates. Run /gates again after handling these.`);
+  if (errors.length) await ctx.reply(`⚠️ Some repositories were unavailable: ${errors.join(" | ")}`);
+}
+
+async function handlePendingGateAnswer(ctx: any, text: string): Promise<boolean> {
+  const key = pendingGateKey(ctx.chat.id, ctx.from?.id);
+  const pending = pendingGateAnswers.get(key);
+  if (!pending) return false;
+  const replyToId = Number(ctx.message?.reply_to_message?.message_id || 0);
+  if (Date.now() > pending.expiresAt) {
+    pendingGateAnswers.delete(key);
+    if (replyToId === pending.promptMessageId) await ctx.reply("⌛ That gate-answer prompt expired. Run /gates and try again.");
+    return replyToId === pending.promptMessageId;
+  }
+  if (replyToId !== pending.promptMessageId) return false;
+  pendingGateAnswers.delete(key);
+  if (!isChowControlAllowed(ctx.chat.id)) {
+    await ctx.reply("⛔ Chow control is not enabled for this chat.");
+    return true;
+  }
+  try {
+    const selection = await resolveGateSelection(pending.handle, chowControlConfig, chowCommandRunner);
+    if (!selection.gate.response_required) throw new Error("this gate no longer accepts a text answer");
+    const result = await continueChowGate(selection, chowCommandRunner, text);
+    await ctx.reply(`▶️ Answer accepted. Archon resumed the exact bound run.\nJob: ${selection.item.job_id}\nState: ${String(result.owner_state || result.state || "running")}`);
+  } catch (error: any) {
+    await ctx.reply(`❌ Gate was not continued: ${String(error?.message || error).slice(0, 500)}\nRun /gates to refresh.`);
+  }
+  return true;
 }
 
 function getJoseSnapshotPath(): string {
@@ -2353,6 +2472,7 @@ bot.start(async (ctx) => {
       `/booking [status|set|test|snippet|clear] — Cal.diy booking link control
 ` +
       `/meet [help|setup|join|status|recover|speak|leave|doctor] — Google Meet sidecar control` +
+      `\n/gates — Review and continue bound Archon recovery gates` +
       voiceExtras +
       joseExtras +
       brainExtras,
@@ -3024,11 +3144,66 @@ bot.command("review", async (ctx) => {
   for (const chunk of chunks) await ctx.reply(chunk, { parse_mode: "Markdown" }).catch(() => ctx.reply(chunk));
 });
 
+bot.command("gates", async (ctx) => {
+  try {
+    await replyWithChowGates(ctx);
+  } catch (error: any) {
+    console.error(`[chow-control] recovery inbox failed:`, error?.message || error);
+    await ctx.reply(`❌ Could not load Chow's Recovery Inbox: ${String(error?.message || error).slice(0, 500)}`);
+  }
+});
+
+bot.action(/^chowgate:(approve|answer):([a-f0-9]{16})$/, async (ctx) => {
+  const action = ctx.match[1];
+  const handle = ctx.match[2];
+  if (!isChowControlAllowed(ctx.chat?.id || 0)) {
+    await ctx.answerCbQuery("Not authorized", { show_alert: true });
+    return;
+  }
+  await ctx.answerCbQuery(action === "answer" ? "Preparing answer prompt…" : "Verifying gate…");
+  try {
+    const selection = await resolveGateSelection(handle, chowControlConfig, chowCommandRunner);
+    if (action === "answer") {
+      if (!selection.gate.response_required) throw new Error("this gate no longer requires a text answer");
+      const prompt = await ctx.reply(
+        `Reply to this message with the answer for Archon node ${selection.gate.node_id}.\n\n${summarizeGateMessage(selection.gate.message, 1200)}`,
+        { reply_markup: { force_reply: true, input_field_placeholder: "Type the gate answer…" } },
+      );
+      pendingGateAnswers.set(pendingGateKey(ctx.chat!.id, ctx.from?.id), {
+        handle,
+        promptMessageId: prompt.message_id,
+        expiresAt: Date.now() + GATE_ANSWER_TTL_MS,
+      });
+      return;
+    }
+    if (selection.gate.response_required) throw new Error("this gate requires an answer and cannot use plain approval");
+    const result = await continueChowGate(selection, chowCommandRunner);
+    await ctx.reply(`▶️ Approved. Archon resumed the exact bound run.\nJob: ${selection.item.job_id}\nState: ${String(result.owner_state || result.state || "running")}`);
+  } catch (error: any) {
+    await ctx.reply(`❌ Gate was not continued: ${String(error?.message || error).slice(0, 500)}\nRun /gates to refresh.`);
+  }
+});
+
 // Text messages → pi (fire & forget so Telegraf's 90s handler timeout doesn't kill us)
 bot.on(message("text"), (ctx) => {
   const chatId = ctx.chat.id;
   const user = ctx.from?.username ?? ctx.from?.first_name ?? String(chatId);
   const text = ctx.message.text;
+  const pendingGate = pendingGateAnswers.get(pendingGateKey(chatId, ctx.from?.id));
+  const replyToMessageId = Number((ctx.message as any)?.reply_to_message?.message_id || 0);
+  if (pendingGate && replyToMessageId === pendingGate.promptMessageId) {
+    void handlePendingGateAnswer(ctx, text).then((handled) => {
+      if (!handled) {
+        getOrCreateSession(chatId)
+          .then(() => runPiPrompt(ctx, chatId, text, user))
+          .catch((err) => ctx.reply(`❌ Error: ${err?.message ?? "Unknown error"}`).catch(() => {}));
+      }
+    });
+    return;
+  }
+  if (pendingGate && Date.now() > pendingGate.expiresAt) {
+    pendingGateAnswers.delete(pendingGateKey(chatId, ctx.from?.id));
+  }
   // Debug: log ALL incoming messages including from bots
   console.log(`[DEBUG-MSG] from_id=${ctx.from?.id} is_bot=${ctx.from?.is_bot} username=${ctx.from?.username} chat=${chatId} text=${text.slice(0,80)}`);
 
