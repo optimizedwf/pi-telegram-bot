@@ -32,13 +32,23 @@
 - The new adapter queried both `flow` and `chow`: 0 pending gates, 0 errors.
 - Existing AWS `chow` PM2 process remained online and was not restarted.
 
-## Activation gate
+## Production activation
 
-The live `.env` does not currently expose `ALLOWED_CHAT_IDS` or
-`CHOW_CONTROL_ALLOWED_CHAT_IDS`. The new control surface therefore correctly
-stays disabled. Activation requires adding the explicit Chow chat ID and the
-two repository paths, installing the staged source, then restarting only the
-`chow` PM2 process after operator approval.
+- Discovery found two AWS supervisors using the same Chow Telegram token.
+- The duplicate PM2 `chow` process is stopped.
+- Canonical runtime: user systemd `chow.service` in `/home/ubuntu/pi-hector`.
+- The canonical source received a backed-up surgical patch preserving its
+  substantial pre-existing uncommitted work.
+- Canonical focused tests: PASS, 5/5.
+- Canonical full bot esbuild bundle and Node syntax check: PASS.
+- Canonical AWS-to-Mac adapter probe: 3 projects, 1 response gate, 0 errors.
+- Canonical systemd stability probe: active, zero restart growth after startup.
+- Harmless managed canary is paused at `operator-input`, with
+  `response_required: true` and a valid bound token.
+
+Final user-authenticated proof is pending: `/gates`, `Answer & continue`, then
+reply `amber`. Until that exact callback/reply reaches terminal `SHIP`, the
+production activation decision remains `fix_required`.
 
 ## Existing dependency risk
 
