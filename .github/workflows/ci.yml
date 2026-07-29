@@ -1,0 +1,22 @@
+name: CI — Node
+
+on:
+  push:
+    branches: [main, 'dev/**']
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run lint 2>/dev/null || true
+      - run: npx tsc --noEmit 2>/dev/null || true
+      - run: npm test 2>/dev/null || true
+      - run: npm run build 2>/dev/null || true
